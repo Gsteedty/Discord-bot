@@ -1,0 +1,20 @@
+{
+  "1487209081616994504": {
+    "balance": 1,
+    "cars": []
+  },
+  "1373357313036914731": {
+    "balance": 6272000,
+    "cars": [
+      "honda-civic-type-r",
+      "pagani-zonda-f",
+      "pagani-zonda-revolucion"
+    ],
+    "customizations": {
+      "pagani-zonda-revolucion": {
+        "colorName": "Nero",
+        "colorHex": 1710618
+      }
+    }
+  }
+}
