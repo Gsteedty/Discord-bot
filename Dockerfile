@@ -1,6 +1,7 @@
 FROM node:20-alpine
+RUN npm install -g pnpm@9
 WORKDIR /app
-COPY artifacts/api-server/dist ./dist
-COPY artifacts/api-server/economy.json ./economy.json
-COPY artifacts/api-server/perms.json ./perms.json
-CMD ["node", "dist/index.mjs"]
+COPY . .
+RUN pnpm install --no-frozen-lockfile
+RUN pnpm --filter @workspace/api-server run build
+CMD ["node", "artifacts/api-server/dist/index.mjs"]
