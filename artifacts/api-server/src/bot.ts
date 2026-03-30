@@ -3176,11 +3176,8 @@ client.on(Events.MessageCreate, async (message: Message) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 export function startBot(): void {
+  if (process.env.DISABLE_BOT === "true") { logger.info("Bot disabled via DISABLE_BOT env var"); return; }
   const token = process.env.DISCORD_BOT_TOKEN;
-  console.log(`[startBot] DISCORD_BOT_TOKEN present: ${!!token}`);
-  if (!token) { console.error("[startBot] DISCORD_BOT_TOKEN is not set — bot will not start"); return; }
-  console.log("[startBot] Calling client.login...");
-  client.login(token)
-    .then(() => console.log("[startBot] client.login resolved successfully"))
-    .catch((err) => console.error("[startBot] Failed to log in to Discord:", err));
+  if (!token) { logger.error("DISCORD_BOT_TOKEN is not set"); return; }
+  client.login(token).catch((err) => logger.error({ err }, "Failed to log in to Discord"));
 }
