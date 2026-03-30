@@ -33,4 +33,10 @@ app.listen(port, (err) => {
   }, FOUR_MINUTES);
 });
 
-startBot();
+try {
+  console.log("[index] Calling startBot()...");
+  startBot();
+  console.log("[index] startBot() returned");
+} catch (err) {
+  console.error("[index] startBot() threw:", err);
+}
