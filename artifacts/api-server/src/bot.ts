@@ -1601,8 +1601,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // /say
     if (slash.commandName === "say") {
       if (!canUse("say")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      if (!slash.channel || !("send" in slash.channel)) { await slash.reply({ content: "❌ Can't send messages here.", ephemeral: true }); return; }
       const text = slash.options.getString("message", true);
-      await slash.reply(text);
+      await slash.deferReply({ ephemeral: true });
+      await slash.deleteReply();
+      await (slash.channel as TextChannel).send(text);
       return;
     }
 
