@@ -1840,8 +1840,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         await slash.editReply(
-          errMsg.includes("Cannot send messages") || errMsg.includes("50007")
-            ? `❌ Couldn't DM **${target.username}** — they likely have DMs turned off or have the bot blocked.`
+          errMsg.includes("50007") || errMsg.includes("Cannot send messages to this user")
+            ? `❌ Couldn't DM **${target.username}** — they have DMs turned off or blocked the bot.`
+            : errMsg.includes("50001") || errMsg.includes("Missing Access")
+            ? `❌ Couldn't DM **${target.username}** — the bot doesn't share a server with them or they have DMs closed.`
             : `❌ Failed: ${errMsg.slice(0, 200)}`
         );
       }
