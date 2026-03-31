@@ -1461,15 +1461,15 @@ const SLASH_COMMANDS = [
   },
   {
     name: "dm",
-    description: "Send a DM to a server member with a custom message",
+    description: "Send a DM to a user with a custom message",
     options: [
       { name: "user", description: "Who to DM (mention or username)", type: ApplicationCommandOptionType.User, required: true },
       { name: "message", description: "What to send them", type: ApplicationCommandOptionType.String, required: true },
       { name: "count", description: `How many copies to send (default 1, max ${MAX_DM_COUNT})`, type: ApplicationCommandOptionType.Integer, required: false, min_value: 1, max_value: MAX_DM_COUNT },
-      { name: "ping", description: "Also ping them in this channel?", type: ApplicationCommandOptionType.Boolean, required: false },
+      { name: "ping", description: "Also ping them in this channel? (server only)", type: ApplicationCommandOptionType.Boolean, required: false },
     ],
     integration_types: [0, 1],
-    contexts: [0],
+    contexts: [0, 1, 2],
   },
   // ── Economy ──────────────────────────────────────────────────────────────────
   {
