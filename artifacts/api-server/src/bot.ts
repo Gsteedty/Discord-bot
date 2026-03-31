@@ -1542,6 +1542,12 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 });
 
+// ─── Global error handler (prevents crashes) ──────────────────────────────────
+
+client.on(Events.Error, (err) => {
+  logger.error({ err }, "Discord client error (suppressed)");
+});
+
 // ─── Snipe: cache deleted messages ────────────────────────────────────────────
 
 client.on(Events.MessageDelete, (message) => {
@@ -1725,7 +1731,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const targetChannel = (channelOpt ? await client.channels.fetch(channelOpt.id).catch(() => null) : slash.channel) as TextChannel | null;
       if (!targetChannel || !("send" in targetChannel)) { await slash.reply({ content: "❌ Could not find that channel or it doesn't support messages.", ephemeral: true }); return; }
       await slash.deferReply({ ephemeral: true });
-      for (let i = 0; i < count; i++) await targetChannel.send(spamText);
+      try {
+        for (let i = 0; i < count; i++) await targetChannel.send(spamText);
+      } catch {
+        await slash.editReply("❌ Failed to send messages — the bot may not have permission in that channel.");
+        return;
+      }
       await slash.editReply(`✅ Sent ${count} message${count !== 1 ? "s" : ""} to ${channelOpt ? `<#${channelOpt.id}>` : "this channel"}.`);
       return;
     }
@@ -3176,7 +3187,6 @@ client.on(Events.MessageCreate, async (message: Message) => {
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 export function startBot(): void {
-  if (process.env.DISABLE_BOT === "true") { logger.info("Bot disabled via DISABLE_BOT env var"); return; }
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) { logger.error("DISCORD_BOT_TOKEN is not set"); return; }
   client.login(token).catch((err) => logger.error({ err }, "Failed to log in to Discord"));
