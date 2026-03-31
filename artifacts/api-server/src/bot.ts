@@ -1827,12 +1827,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     // /dm
     if (slash.commandName === "dm") {
-      if (!slash.guild) { await slash.reply({ content: "This command only works in servers.", ephemeral: true }); return; }
       if (!canUse("dm")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
       const target = slash.options.getUser("user", true);
       const text = slash.options.getString("message", true);
       const count = slash.options.getInteger("count") ?? 1;
-      const doPing = slash.options.getBoolean("ping") ?? false;
+      const doPing = (slash.options.getBoolean("ping") ?? false) && !!slash.guild;
       await slash.deferReply({ ephemeral: true });
       try {
         for (let i = 0; i < count; i++) await target.send(text);
