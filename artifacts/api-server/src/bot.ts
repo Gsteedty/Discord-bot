@@ -1901,7 +1901,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // /mock
     if (slash.commandName === "mock") {
       if (!canUse("mock")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
-      await slash.reply(mockText(slash.options.getString("text", true)));
+      const mocked = mockText(slash.options.getString("text", true));
+      if (slash.channel && "send" in slash.channel) {
+        await slash.deferReply({ ephemeral: true });
+        await slash.deleteReply();
+        await (slash.channel as TextChannel).send(mocked);
+      } else {
+        await slash.reply(mocked);
+      }
       return;
     }
 
@@ -3006,6 +3013,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
   if (command === "mock") {
     if (!canUse("mock")) { await message.channel.send("You don't have permission to use that command."); return; }
     if (!args.length) { await message.channel.send("Usage: `-mock <text>`"); return; }
+    await message.delete().catch(() => {});
     await message.channel.send(mockText(args.join(" ")));
     return;
   }
