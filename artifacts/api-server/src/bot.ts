@@ -481,8 +481,9 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
 
   // FUN
   embeds.fun = base("🎭 Fun").addFields(
-    { name: "`mock <text>`",          value: "cOnVeRtS yOuR tExT tO mOcKiNg SpOnGeBoB cAsE",                                                      inline: false },
-    { name: "`compliment @user`",     value: "Generates a warm, AI-written compliment for someone *(server only)*",                                 inline: false },
+    { name: "`mock <text>`",              value: "cOnVeRtS yOuR tExT tO mOcKiNg SpOnGeBoB cAsE",                                                  inline: false },
+    { name: "`compliment @user`",         value: "Generates a warm, AI-written compliment for someone *(server only)*",                           inline: false },
+    { name: "`bully @user <1-10>`",       value: "AI-generated roast at a chosen intensity (1 = soft, 10 = brutal)",                              inline: false },
   );
 
   // MESSAGING
@@ -1947,24 +1948,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!canUse("bully")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
       const target = slash.options.getUser("user", true);
       const level = slash.options.getInteger("level", true);
-      const intensityDesc = level <= 2 ? "very gentle teasing, like a friend poking fun, no real insults"
-        : level <= 4 ? "mild playful roast, light jokes, friendly but with a tiny sting"
-        : level <= 6 ? "medium roast, clearly a joke but has some real bite and wit"
-        : level <= 8 ? "harsh playground-style roast, brutal but clearly comedy, no mercy"
-        : "absolutely savage and ruthless roast, maximum comedy brutality, still no slurs or genuine hate";
-      await slash.deferReply();
+      const intensityDesc = level <= 2 ? "very light, barely an insult, like a friend teasing you"
+        : level <= 4 ? "mild, a little mean but still friendly, slight sting"
+        : level <= 6 ? "noticeably mean, sharp and pointed, no filter but not extreme"
+        : level <= 8 ? "harsh, cutting, hits where it hurts, no mercy"
+        : "absolutely vicious, no holding back, say the most brutal thing imaginable without slurs";
+      if (!slash.channel || !("send" in slash.channel)) { await slash.reply({ content: "❌ Can't send here.", ephemeral: true }); return; }
+      await slash.deferReply({ ephemeral: true });
       try {
         const resp = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
-          max_tokens: 200,
+          max_tokens: 150,
           messages: [
-            { role: "system", content: `You are a comedy roast writer. Generate a single funny roast/insult directed at someone. Intensity level ${level}/10: ${intensityDesc}. No slurs, no genuine hate speech. Pure comedy. One or two sentences max. Do not add disclaimers or say it's a joke.` },
-            { role: "user", content: `Roast ${target.displayName ?? target.username} at level ${level}/10.` },
+            { role: "system", content: `You write sharp, direct insults. Intensity: ${intensityDesc}. No slurs. No disclaimers. No "just kidding". No emojis. Address the person by name. One or two sentences only. Sound natural, not like a joke writer.` },
+            { role: "user", content: `Write an insult targeting ${target.displayName ?? target.username}.` },
           ],
         });
-        const roast = resp.choices[0]?.message?.content?.trim() ?? "You're... fine I guess.";
-        const emoji = level <= 2 ? "😄" : level <= 4 ? "😏" : level <= 6 ? "🔥" : level <= 8 ? "💀" : "☠️";
-        await slash.editReply(`${emoji} **${target.displayName ?? target.username}** (level ${level}/10): ${roast}`);
+        const roast = resp.choices[0]?.message?.content?.trim() ?? "You're genuinely unremarkable.";
+        await slash.deleteReply();
+        await (slash.channel as TextChannel).send(`**${target.displayName ?? target.username}**: ${roast}`);
       } catch { await slash.editReply("❌ Couldn't cook up a roast right now."); }
       return;
     }
@@ -3096,24 +3098,24 @@ client.on(Events.MessageCreate, async (message: Message) => {
         : message.guild.members.cache.find(m => m.user.username.toLowerCase() === userId.toLowerCase() || m.displayName.toLowerCase() === userId.toLowerCase()) ?? null;
       if (found) targetName = found.displayName;
     }
-    const intensityDesc = level <= 2 ? "very gentle teasing, like a friend poking fun, no real insults"
-      : level <= 4 ? "mild playful roast, light jokes, friendly but with a tiny sting"
-      : level <= 6 ? "medium roast, clearly a joke but has some real bite and wit"
-      : level <= 8 ? "harsh playground-style roast, brutal but clearly comedy, no mercy"
-      : "absolutely savage and ruthless roast, maximum comedy brutality, still no slurs or genuine hate";
-    const thinking = await message.channel.send("🔥 Cooking up a roast...");
+    const intensityDesc = level <= 2 ? "very light, barely an insult, like a friend teasing you"
+      : level <= 4 ? "mild, a little mean but still friendly, slight sting"
+      : level <= 6 ? "noticeably mean, sharp and pointed, no filter but not extreme"
+      : level <= 8 ? "harsh, cutting, hits where it hurts, no mercy"
+      : "absolutely vicious, no holding back, say the most brutal thing imaginable without slurs";
+    await message.delete().catch(() => {});
+    const thinking = await message.channel.send("...");
     try {
       const resp = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
-        max_tokens: 200,
+        max_tokens: 150,
         messages: [
-          { role: "system", content: `You are a comedy roast writer. Generate a single funny roast/insult directed at someone. Intensity level ${level}/10: ${intensityDesc}. No slurs, no genuine hate speech. Pure comedy. One or two sentences max. Do not add disclaimers or say it's a joke.` },
-          { role: "user", content: `Roast ${targetName} at level ${level}/10.` },
+          { role: "system", content: `You write sharp, direct insults. Intensity: ${intensityDesc}. No slurs. No disclaimers. No "just kidding". No emojis. Address the person by name. One or two sentences only. Sound natural, not like a joke writer.` },
+          { role: "user", content: `Write an insult targeting ${targetName}.` },
         ],
       });
-      const roast = resp.choices[0]?.message?.content?.trim() ?? "You're... fine I guess.";
-      const emoji = level <= 2 ? "😄" : level <= 4 ? "😏" : level <= 6 ? "🔥" : level <= 8 ? "💀" : "☠️";
-      await thinking.edit(`${emoji} **${targetName}** (level ${level}/10): ${roast}`);
+      const roast = resp.choices[0]?.message?.content?.trim() ?? "You're genuinely unremarkable.";
+      await thinking.edit(`**${targetName}**: ${roast}`);
     } catch { await thinking.edit("❌ Couldn't cook up a roast right now."); }
     return;
   }
