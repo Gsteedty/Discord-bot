@@ -1440,6 +1440,16 @@ const SLASH_COMMANDS = [
     contexts: [0, 1, 2],
   },
   {
+    name: "bully",
+    description: "Roast someone (just a joke, not serious)",
+    options: [
+      { name: "user", description: "Who to roast", type: ApplicationCommandOptionType.User, required: true },
+      { name: "level", description: "Intensity (1 = soft teasing, 10 = brutal)", type: ApplicationCommandOptionType.Integer, required: true, min_value: 1, max_value: 10 },
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
     name: "compliment",
     description: "Generate an AI compliment for someone",
     options: [{ name: "user", description: "Who to compliment", type: ApplicationCommandOptionType.User, required: true }],
@@ -1929,6 +1939,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const compliment = resp.choices[0]?.message?.content ?? "You're awesome!";
         await slash.editReply(`💌 **${target.displayName ?? target.username}**: ${compliment}`);
       } catch { await slash.editReply("❌ Couldn't generate a compliment right now."); }
+      return;
+    }
+
+    // /bully
+    if (slash.commandName === "bully") {
+      if (!canUse("bully")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user", true);
+      const level = slash.options.getInteger("level", true);
+      const intensityDesc = level <= 2 ? "very gentle teasing, like a friend poking fun, no real insults"
+        : level <= 4 ? "mild playful roast, light jokes, friendly but with a tiny sting"
+        : level <= 6 ? "medium roast, clearly a joke but has some real bite and wit"
+        : level <= 8 ? "harsh playground-style roast, brutal but clearly comedy, no mercy"
+        : "absolutely savage and ruthless roast, maximum comedy brutality, still no slurs or genuine hate";
+      await slash.deferReply();
+      try {
+        const resp = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 200,
+          messages: [
+            { role: "system", content: `You are a comedy roast writer. Generate a single funny roast/insult directed at someone. Intensity level ${level}/10: ${intensityDesc}. No slurs, no genuine hate speech. Pure comedy. One or two sentences max. Do not add disclaimers or say it's a joke.` },
+            { role: "user", content: `Roast ${target.displayName ?? target.username} at level ${level}/10.` },
+          ],
+        });
+        const roast = resp.choices[0]?.message?.content?.trim() ?? "You're... fine I guess.";
+        const emoji = level <= 2 ? "😄" : level <= 4 ? "😏" : level <= 6 ? "🔥" : level <= 8 ? "💀" : "☠️";
+        await slash.editReply(`${emoji} **${target.displayName ?? target.username}** (level ${level}/10): ${roast}`);
+      } catch { await slash.editReply("❌ Couldn't cook up a roast right now."); }
       return;
     }
 
@@ -3042,6 +3079,42 @@ client.on(Events.MessageCreate, async (message: Message) => {
       const compliment = resp.choices[0]?.message?.content ?? "You're awesome!";
       await thinking.edit(`💌 **${targetName}**: ${compliment}`);
     } catch { await thinking.edit("❌ Couldn't generate a compliment right now."); }
+    return;
+  }
+
+  if (command === "bully") {
+    if (!canUse("bully")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const userArg = args[0];
+    const levelArg = parseInt(args[1] ?? "5");
+    if (!userArg) { await message.channel.send("Usage: `-bully <@user or name> <level 1-10>`"); return; }
+    const level = Math.min(10, Math.max(1, isNaN(levelArg) ? 5 : levelArg));
+    const userId = userArg.replace(/[<@!>]/g, "");
+    let targetName = userArg;
+    if (message.guild) {
+      const found = /^\d+$/.test(userId)
+        ? await message.guild.members.fetch(userId).catch(() => null)
+        : message.guild.members.cache.find(m => m.user.username.toLowerCase() === userId.toLowerCase() || m.displayName.toLowerCase() === userId.toLowerCase()) ?? null;
+      if (found) targetName = found.displayName;
+    }
+    const intensityDesc = level <= 2 ? "very gentle teasing, like a friend poking fun, no real insults"
+      : level <= 4 ? "mild playful roast, light jokes, friendly but with a tiny sting"
+      : level <= 6 ? "medium roast, clearly a joke but has some real bite and wit"
+      : level <= 8 ? "harsh playground-style roast, brutal but clearly comedy, no mercy"
+      : "absolutely savage and ruthless roast, maximum comedy brutality, still no slurs or genuine hate";
+    const thinking = await message.channel.send("🔥 Cooking up a roast...");
+    try {
+      const resp = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 200,
+        messages: [
+          { role: "system", content: `You are a comedy roast writer. Generate a single funny roast/insult directed at someone. Intensity level ${level}/10: ${intensityDesc}. No slurs, no genuine hate speech. Pure comedy. One or two sentences max. Do not add disclaimers or say it's a joke.` },
+          { role: "user", content: `Roast ${targetName} at level ${level}/10.` },
+        ],
+      });
+      const roast = resp.choices[0]?.message?.content?.trim() ?? "You're... fine I guess.";
+      const emoji = level <= 2 ? "😄" : level <= 4 ? "😏" : level <= 6 ? "🔥" : level <= 8 ? "💀" : "☠️";
+      await thinking.edit(`${emoji} **${targetName}** (level ${level}/10): ${roast}`);
+    } catch { await thinking.edit("❌ Couldn't cook up a roast right now."); }
     return;
   }
 
