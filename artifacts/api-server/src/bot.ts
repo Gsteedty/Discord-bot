@@ -484,7 +484,8 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: "`mock <text>`",              value: "cOnVeRtS yOuR tExT tO mOcKiNg SpOnGeBoB cAsE",                                                  inline: false },
     { name: "`compliment @user`",         value: "Generates a warm, AI-written compliment for someone *(server only)*",                           inline: false },
     { name: "`bully @user <1-10>`",       value: "AI-generated roast at a chosen intensity (1 = soft, 10 = brutal)",                              inline: false },
-    { name: "`ragebait @user [topic]`",   value: "AI writes a funny, provocative take designed to get a reaction from someone",                     inline: false },
+    { name: "`ragebait @user [topic]`",   value: "AI drops a brutal, unfiltered accusation or hot take designed to set someone off",              inline: false },
+    { name: "`fake @user`",               value: "Finds their last message, deletes it, and posts a stupid AI-written version as them",              inline: false },
   );
 
   // MESSAGING
@@ -1455,13 +1456,22 @@ const SLASH_COMMANDS = [
   },
   {
     name: "ragebait",
-    description: "Generate a funny, provocative take to troll someone",
+    description: "Drop a brutal, unfiltered accusation or hot take to set someone off",
     options: [
-      { name: "user", description: "Who to ragebait", type: ApplicationCommandOptionType.User, required: true },
-      { name: "topic", description: "Topic or angle (e.g. 'their music taste', 'gaming skills')", type: ApplicationCommandOptionType.String, required: false },
+      { name: "user", description: "Who to target", type: ApplicationCommandOptionType.User, required: true },
+      { name: "topic", description: "What to target (e.g. 'gaming', 'their fit', 'personality')", type: ApplicationCommandOptionType.String, required: false },
     ],
     integration_types: [0, 1],
     contexts: [0, 1, 2],
+  },
+  {
+    name: "fake",
+    description: "Delete someone's last message and post a stupid AI version as them",
+    options: [
+      { name: "user", description: "Who to impersonate", type: ApplicationCommandOptionType.User, required: true },
+    ],
+    integration_types: [0, 1],
+    contexts: [0],
   },
   {
     name: "compliment",
@@ -1999,19 +2009,49 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!slash.channel || !("send" in slash.channel)) { await slash.reply({ content: "Can't send here.", ephemeral: true }); return; }
       await slash.deferReply({ ephemeral: true });
       try {
-        const topicLine = topic ? ` The take should be specifically about their ${topic}.` : "";
+        const topicLine = topic ? ` Focus specifically on their ${topic}.` : "";
+        const name = target.displayName ?? target.username;
         const resp = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
           max_tokens: 120,
           messages: [
-            { role: "system", content: `You are a master troll who writes funny ragebait. Generate a single provocative, absurd, or wildly controversial opinion or "hot take" aimed at a specific person — the kind of thing that makes people lose their minds or laugh out loud. Think unhinged Twitter energy. Keep it funny, not mean-spirited or hateful. No slurs. No emojis. No disclaimers. One or two sentences max. Address them by name.${topicLine}` },
-            { role: "user", content: `Write a ragebait take targeting ${target.displayName ?? target.username}.` },
+            { role: "system", content: `You write brutal, direct statements designed to make someone furious. Pick ONE approach at random: a savage accusation stated as cold fact, calling out something embarrassing about how they carry themselves, a ruthless honest assessment of their character, or a wild claim about something they secretly do. Be specific and confident. No slurs. No emojis. No softening, no "lol", no punchline setup. State it like you genuinely mean it. One or two sentences. Address them by name.${topicLine}` },
+            { role: "user", content: `Write something targeting ${name}.` },
           ],
         });
-        const bait = resp.choices[0]?.message?.content?.trim() ?? `${target.displayName ?? target.username} is genuinely mid and everyone just pretends otherwise.`;
+        const bait = resp.choices[0]?.message?.content?.trim() ?? `${name} genuinely doesn't know how to read a room and it shows every single time.`;
         await slash.deleteReply();
-        await (slash.channel as TextChannel).send(`**${target.displayName ?? target.username}**: ${bait}`);
+        await (slash.channel as TextChannel).send(`**${name}**: ${bait}`);
       } catch { await slash.editReply("Couldn't generate the ragebait right now."); }
+      return;
+    }
+
+    // /fake
+    if (slash.commandName === "fake") {
+      if (!slash.guild) { await slash.reply({ content: "Server only.", ephemeral: true }); return; }
+      if (!canUse("fake")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user", true);
+      if (!slash.channel || !("messages" in slash.channel)) { await slash.reply({ content: "Can't do that here.", ephemeral: true }); return; }
+      await slash.deferReply({ ephemeral: true });
+      try {
+        const ch = slash.channel as TextChannel;
+        const fetched = await ch.messages.fetch({ limit: 50 });
+        const targetMsg = fetched.filter(m => m.author.id === target.id && m.deletable).first();
+        const name = (await slash.guild.members.fetch(target.id).catch(() => null))?.displayName ?? target.username;
+        if (targetMsg) await targetMsg.delete().catch(() => {});
+        const originalText = targetMsg?.content?.trim() || null;
+        const resp = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 120,
+          messages: [
+            { role: "system", content: `You are writing a message that ${name} supposedly just sent in a group chat. Make it stupid and embarrassing — a dumb take, an unhinged overshare, a weird claim, something that sounds like a real person having a genuinely bad moment online. Nothing corny or try-hard. No emojis. No quotes. One or two sentences. Sound like an actual human being being stupid.` },
+            { role: "user", content: originalText ? `Their actual message was: "${originalText}". Write a stupid version as them.` : `Write something stupid as ${name}.` },
+          ],
+        });
+        const fake = resp.choices[0]?.message?.content?.trim() ?? `bro i actually think i'm built different ngl`;
+        await slash.deleteReply();
+        await ch.send(`**${name}**: ${fake}`);
+      } catch (e) { await slash.editReply("Couldn't do that right now."); }
       return;
     }
 
@@ -3204,18 +3244,51 @@ client.on(Events.MessageCreate, async (message: Message) => {
     await message.delete().catch(() => {});
     const thinking = await message.channel.send("...");
     try {
-      const topicLine = topicArgs ? ` The take should be specifically about their ${topicArgs}.` : "";
+      const topicLine = topicArgs ? ` Focus specifically on their ${topicArgs}.` : "";
       const resp = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         max_tokens: 120,
         messages: [
-          { role: "system", content: `You are a master troll who writes funny ragebait. Generate a single provocative, absurd, or wildly controversial opinion or "hot take" aimed at a specific person — the kind of thing that makes people lose their minds or laugh out loud. Think unhinged Twitter energy. Keep it funny, not mean-spirited or hateful. No slurs. No emojis. No disclaimers. One or two sentences max. Address them by name.${topicLine}` },
-          { role: "user", content: `Write a ragebait take targeting ${targetName}.` },
+          { role: "system", content: `You write brutal, direct statements designed to make someone furious. Pick ONE approach at random: a savage accusation stated as cold fact, calling out something embarrassing about how they carry themselves, a ruthless honest assessment of their character, or a wild claim about something they secretly do. Be specific and confident. No slurs. No emojis. No softening, no "lol", no punchline setup. State it like you genuinely mean it. One or two sentences. Address them by name.${topicLine}` },
+          { role: "user", content: `Write something targeting ${targetName}.` },
         ],
       });
-      const bait = resp.choices[0]?.message?.content?.trim() ?? `${targetName} is genuinely mid and everyone just pretends otherwise.`;
+      const bait = resp.choices[0]?.message?.content?.trim() ?? `${targetName} genuinely doesn't know how to read a room and it shows every single time.`;
       await thinking.edit(`**${targetName}**: ${bait}`);
     } catch { await thinking.edit("Couldn't generate the ragebait right now."); }
+    return;
+  }
+
+  if (command === "fake") {
+    if (!message.guild) { await message.channel.send("This command only works in servers."); return; }
+    if (!canUse("fake")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const userArg = args[0];
+    if (!userArg) { await message.channel.send("Usage: `-fake <@user>`"); return; }
+    const userId = userArg.replace(/[<@!>]/g, "");
+    const member = /^\d+$/.test(userId)
+      ? await message.guild.members.fetch(userId).catch(() => null)
+      : message.guild.members.cache.find(m => m.user.username.toLowerCase() === userId.toLowerCase() || m.displayName.toLowerCase() === userId.toLowerCase()) ?? null;
+    if (!member) { await message.channel.send("Couldn't find that user."); return; }
+    const targetName = member.displayName;
+    await message.delete().catch(() => {});
+    const thinking = await message.channel.send("...");
+    try {
+      const ch = message.channel as TextChannel;
+      const fetched = await ch.messages.fetch({ limit: 50 });
+      const targetMsg = fetched.filter(m => m.author.id === member.user.id && m.deletable && m.id !== thinking.id).first();
+      if (targetMsg) await targetMsg.delete().catch(() => {});
+      const originalText = targetMsg?.content?.trim() || null;
+      const resp = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 120,
+        messages: [
+          { role: "system", content: `You are writing a message that ${targetName} supposedly just sent in a group chat. Make it stupid and embarrassing — a dumb take, an unhinged overshare, a weird claim, something that sounds like a real person having a genuinely bad moment online. Nothing corny or try-hard. No emojis. No quotes. One or two sentences. Sound like an actual human being being stupid.` },
+          { role: "user", content: originalText ? `Their actual message was: "${originalText}". Write a stupid version as them.` : `Write something stupid as ${targetName}.` },
+        ],
+      });
+      const fake = resp.choices[0]?.message?.content?.trim() ?? `bro i actually think i'm built different ngl`;
+      await thinking.edit(`**${targetName}**: ${fake}`);
+    } catch { await thinking.edit("Couldn't do that right now."); }
     return;
   }
 
