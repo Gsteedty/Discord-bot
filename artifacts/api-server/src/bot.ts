@@ -1621,7 +1621,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     // /help
     if (slash.commandName === "help") {
       const inDM = !slash.guild;
-      const footer = { text: `Requested by ${slash.user.username} • i got lazy with this ui so i just used ai for it`, iconURL: slash.user.displayAvatarURL() };
+      const footer = { text: `i got lazy with this ui so i just used ai for it`, iconURL: slash.user.displayAvatarURL() };
       const embeds = buildHelpEmbeds(inDM, footer);
       await slash.deferReply();
       const reply = await slash.editReply({ embeds: [embeds.home] });
@@ -2844,7 +2844,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
   // -help
   if (command === "help") {
     const inDM = !message.guild;
-    const footer = { text: `Requested by ${message.author.username} • i got lazy with this ui so i just used ai for it`, iconURL: message.author.displayAvatarURL() };
+    const footer = { text: `i got lazy with this ui so i just used ai for it`, iconURL: message.author.displayAvatarURL() };
     const embeds = buildHelpEmbeds(inDM, footer);
     const sent = await message.channel.send({ embeds: [embeds.home] });
     const msgId = sent.id;
