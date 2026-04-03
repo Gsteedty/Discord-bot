@@ -484,6 +484,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: "`mock <text>`",              value: "cOnVeRtS yOuR tExT tO mOcKiNg SpOnGeBoB cAsE",                                                  inline: false },
     { name: "`compliment @user`",         value: "Generates a warm, AI-written compliment for someone *(server only)*",                           inline: false },
     { name: "`bully @user <1-10>`",       value: "AI-generated roast at a chosen intensity (1 = soft, 10 = brutal)",                              inline: false },
+    { name: "`ragebait @user [topic]`",   value: "AI writes a funny, provocative take designed to get a reaction from someone",                     inline: false },
   );
 
   // MESSAGING
@@ -1453,6 +1454,16 @@ const SLASH_COMMANDS = [
     contexts: [0, 1, 2],
   },
   {
+    name: "ragebait",
+    description: "Generate a funny, provocative take to troll someone",
+    options: [
+      { name: "user", description: "Who to ragebait", type: ApplicationCommandOptionType.User, required: true },
+      { name: "topic", description: "Topic or angle (e.g. 'their music taste', 'gaming skills')", type: ApplicationCommandOptionType.String, required: false },
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
     name: "compliment",
     description: "Generate an AI compliment for someone",
     options: [{ name: "user", description: "Who to compliment", type: ApplicationCommandOptionType.User, required: true }],
@@ -1977,6 +1988,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await slash.deleteReply();
         await (slash.channel as TextChannel).send(`**${target.displayName ?? target.username}**: ${roast}`);
       } catch { await slash.editReply("❌ Couldn't cook up a roast right now."); }
+      return;
+    }
+
+    // /ragebait
+    if (slash.commandName === "ragebait") {
+      if (!canUse("ragebait")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user", true);
+      const topic = slash.options.getString("topic") ?? null;
+      if (!slash.channel || !("send" in slash.channel)) { await slash.reply({ content: "Can't send here.", ephemeral: true }); return; }
+      await slash.deferReply({ ephemeral: true });
+      try {
+        const topicLine = topic ? ` The take should be specifically about their ${topic}.` : "";
+        const resp = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 120,
+          messages: [
+            { role: "system", content: `You are a master troll who writes funny ragebait. Generate a single provocative, absurd, or wildly controversial opinion or "hot take" aimed at a specific person — the kind of thing that makes people lose their minds or laugh out loud. Think unhinged Twitter energy. Keep it funny, not mean-spirited or hateful. No slurs. No emojis. No disclaimers. One or two sentences max. Address them by name.${topicLine}` },
+            { role: "user", content: `Write a ragebait take targeting ${target.displayName ?? target.username}.` },
+          ],
+        });
+        const bait = resp.choices[0]?.message?.content?.trim() ?? `${target.displayName ?? target.username} is genuinely mid and everyone just pretends otherwise.`;
+        await slash.deleteReply();
+        await (slash.channel as TextChannel).send(`**${target.displayName ?? target.username}**: ${bait}`);
+      } catch { await slash.editReply("Couldn't generate the ragebait right now."); }
       return;
     }
 
@@ -3150,6 +3185,37 @@ client.on(Events.MessageCreate, async (message: Message) => {
       const roast = resp.choices[0]?.message?.content?.trim() ?? "You're genuinely unremarkable.";
       await thinking.edit(`**${targetName}**: ${roast}`);
     } catch { await thinking.edit("❌ Couldn't cook up a roast right now."); }
+    return;
+  }
+
+  if (command === "ragebait") {
+    if (!canUse("ragebait")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const userArg = args[0];
+    if (!userArg) { await message.channel.send("Usage: `-ragebait <@user or name> [topic]`"); return; }
+    const topicArgs = args.slice(1).join(" ").trim();
+    const userId = userArg.replace(/[<@!>]/g, "");
+    let targetName = userArg;
+    if (message.guild) {
+      const found = /^\d+$/.test(userId)
+        ? await message.guild.members.fetch(userId).catch(() => null)
+        : message.guild.members.cache.find(m => m.user.username.toLowerCase() === userId.toLowerCase() || m.displayName.toLowerCase() === userId.toLowerCase()) ?? null;
+      if (found) targetName = found.displayName;
+    }
+    await message.delete().catch(() => {});
+    const thinking = await message.channel.send("...");
+    try {
+      const topicLine = topicArgs ? ` The take should be specifically about their ${topicArgs}.` : "";
+      const resp = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 120,
+        messages: [
+          { role: "system", content: `You are a master troll who writes funny ragebait. Generate a single provocative, absurd, or wildly controversial opinion or "hot take" aimed at a specific person — the kind of thing that makes people lose their minds or laugh out loud. Think unhinged Twitter energy. Keep it funny, not mean-spirited or hateful. No slurs. No emojis. No disclaimers. One or two sentences max. Address them by name.${topicLine}` },
+          { role: "user", content: `Write a ragebait take targeting ${targetName}.` },
+        ],
+      });
+      const bait = resp.choices[0]?.message?.content?.trim() ?? `${targetName} is genuinely mid and everyone just pretends otherwise.`;
+      await thinking.edit(`**${targetName}**: ${bait}`);
+    } catch { await thinking.edit("Couldn't generate the ragebait right now."); }
     return;
   }
 
