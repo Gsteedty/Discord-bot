@@ -502,6 +502,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: "`latency`",                    value: "Check the bot's current WebSocket ping",                                                                                            inline: false },
     { name: "`snipe`",                      value: "Reveal the last deleted message in this channel *(server only)*",                                                                   inline: false },
     { name: `\`delete <count> [user]\``,    value: `Bulk delete up to **${MAX_DELETE_COUNT}** messages in the channel. Optionally filter by a username *(server only)*`,              inline: false },
+    { name: "`uwr @role`",                  value: "List all members with a given role and show that role's permissions *(server only)*",                                              inline: false },
   );
 
   // ECONOMY
@@ -1464,6 +1465,13 @@ const SLASH_COMMANDS = [
     contexts: [0],
   },
   {
+    name: "uwr",
+    description: "List all members with a role and show that role's permissions",
+    options: [{ name: "role", description: "The role to look up", type: ApplicationCommandOptionType.Role, required: true }],
+    integration_types: [0, 1],
+    contexts: [0],
+  },
+  {
     name: "avatar",
     description: "Show someone's full-size profile picture",
     options: [{ name: "user", description: "Who to look up (defaults to you)", type: ApplicationCommandOptionType.User, required: false }],
@@ -1983,6 +1991,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
         .setDescription(entry.content)
         .setFooter({ text: `Deleted ${formatAge(entry.deletedAt)} ago` });
       await slash.reply({ embeds: [embed] });
+      return;
+    }
+
+    // /uwr
+    if (slash.commandName === "uwr") {
+      if (!slash.guild) { await slash.reply({ content: "Server only.", ephemeral: true }); return; }
+      const roleOpt = slash.options.getRole("role", true) as Role;
+      await slash.deferReply();
+      await slash.guild.members.fetch();
+      const members = slash.guild.members.cache.filter(m => m.roles.cache.has(roleOpt.id)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+      const perms = NOTABLE_PERMISSIONS.filter(([flag]) => roleOpt.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label);
+      const memberNames = [...members.values()].map(m => m.displayName);
+      const memberStr = memberNames.length === 0 ? "*No members*"
+        : memberNames.length > 40 ? memberNames.slice(0, 40).join("\n") + `\n… and ${memberNames.length - 40} more`
+        : memberNames.join("\n");
+      const permStr = perms.length === 0 ? "*No notable permissions*" : perms.join("\n");
+      const embed = new EmbedBuilder()
+        .setColor(roleOpt.color || 0x5865f2)
+        .setTitle(`@${roleOpt.name}`)
+        .setDescription(`**${members.size}** member${members.size !== 1 ? "s" : ""} have this role`)
+        .addFields(
+          { name: `Members`, value: memberStr.slice(0, 1024), inline: true },
+          { name: `Permissions`, value: permStr.slice(0, 1024), inline: true },
+        )
+        .setFooter({ text: `Role ID: ${roleOpt.id}` });
+      await slash.editReply({ embeds: [embed] });
       return;
     }
 
@@ -3265,6 +3299,37 @@ client.on(Events.MessageCreate, async (message: Message) => {
     garageCache.set(msgId, { ownerId: target.id, cars });
     scheduleGarageCleanup(msgId);
     await sent.edit({ embeds: [embed], components: buildGarageCarButtons(msgId, cars) });
+    return;
+  }
+
+  // -uwr
+  if (command === "uwr") {
+    if (!message.guild) { await message.channel.send("This command only works in servers."); return; }
+    const roleArg = args[0];
+    if (!roleArg) { await message.channel.send("Usage: `-uwr @role`"); return; }
+    const roleId = roleArg.replace(/[<@&>]/g, "");
+    const role = message.guild.roles.cache.get(roleId)
+      ?? message.guild.roles.cache.find(r => r.name.toLowerCase() === roleArg.toLowerCase())
+      ?? null;
+    if (!role) { await message.channel.send("❌ Role not found. Try mentioning it with @role."); return; }
+    await message.guild.members.fetch();
+    const members = message.guild.members.cache.filter(m => m.roles.cache.has(role.id)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+    const perms = NOTABLE_PERMISSIONS.filter(([flag]) => role.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label);
+    const memberNames = [...members.values()].map(m => m.displayName);
+    const memberStr = memberNames.length === 0 ? "*No members*"
+      : memberNames.length > 40 ? memberNames.slice(0, 40).join("\n") + `\n… and ${memberNames.length - 40} more`
+      : memberNames.join("\n");
+    const permStr = perms.length === 0 ? "*No notable permissions*" : perms.join("\n");
+    const embed = new EmbedBuilder()
+      .setColor(role.color || 0x5865f2)
+      .setTitle(`@${role.name}`)
+      .setDescription(`**${members.size}** member${members.size !== 1 ? "s" : ""} have this role`)
+      .addFields(
+        { name: "Members", value: memberStr.slice(0, 1024), inline: true },
+        { name: "Permissions", value: permStr.slice(0, 1024), inline: true },
+      )
+      .setFooter({ text: `Role ID: ${role.id}` });
+    await message.channel.send({ embeds: [embed] });
     return;
   }
 
