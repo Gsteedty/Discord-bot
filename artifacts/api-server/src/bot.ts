@@ -923,6 +923,7 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Message, Partials.Channel],
 });
@@ -1999,22 +2000,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!slash.guild) { await slash.reply({ content: "Server only.", ephemeral: true }); return; }
       const roleOpt = slash.options.getRole("role", true) as Role;
       await slash.deferReply();
-      const members = roleOpt.members.sort((a, b) => a.displayName.localeCompare(b.displayName));
-      const perms = NOTABLE_PERMISSIONS.filter(([flag]) => roleOpt.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label);
+      await slash.guild.members.fetch();
+      const members = slash.guild.members.cache.filter(m => m.roles.cache.has(roleOpt.id)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+      const perms = NOTABLE_PERMISSIONS.filter(([flag]) => roleOpt.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label.replace(/^[\p{Emoji}\u{FE0F}\s]+/u, "").trim());
       const memberNames = [...members.values()].map(m => m.displayName);
-      const memberStr = memberNames.length === 0 ? "*No members*"
-        : memberNames.length > 40 ? memberNames.slice(0, 40).join("\n") + `\n… and ${memberNames.length - 40} more`
-        : memberNames.join("\n");
-      const permStr = perms.length === 0 ? "*No notable permissions*" : perms.join("\n");
+      const memberStr = memberNames.length === 0 ? "None"
+        : memberNames.length > 50 ? memberNames.slice(0, 50).join(", ") + ` (+${memberNames.length - 50} more)`
+        : memberNames.join(", ");
+      const permStr = perms.length === 0 ? "None" : perms.join(", ");
       const embed = new EmbedBuilder()
         .setColor(roleOpt.color || 0x5865f2)
-        .setTitle(`@${roleOpt.name}`)
-        .setDescription(`**${members.size}** member${members.size !== 1 ? "s" : ""} have this role`)
+        .setTitle(`@${roleOpt.name}  ·  ${members.size} member${members.size !== 1 ? "s" : ""}`)
         .addFields(
-          { name: `Members`, value: memberStr.slice(0, 1024), inline: true },
-          { name: `Permissions`, value: permStr.slice(0, 1024), inline: true },
-        )
-        .setFooter({ text: `Role ID: ${roleOpt.id}` });
+          { name: "Members", value: memberStr.slice(0, 1024), inline: false },
+          { name: "Permissions", value: permStr.slice(0, 1024), inline: false },
+        );
       await slash.editReply({ embeds: [embed] });
       return;
     }
@@ -3310,23 +3310,22 @@ client.on(Events.MessageCreate, async (message: Message) => {
     const role = message.guild.roles.cache.get(roleId)
       ?? message.guild.roles.cache.find(r => r.name.toLowerCase() === roleArg.toLowerCase())
       ?? null;
-    if (!role) { await message.channel.send("❌ Role not found. Try mentioning it with @role."); return; }
-    const members = role.members.sort((a, b) => a.displayName.localeCompare(b.displayName));
-    const perms = NOTABLE_PERMISSIONS.filter(([flag]) => role.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label);
+    if (!role) { await message.channel.send("Role not found. Try mentioning it with @role."); return; }
+    await message.guild.members.fetch();
+    const members = message.guild.members.cache.filter(m => m.roles.cache.has(role.id)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+    const perms = NOTABLE_PERMISSIONS.filter(([flag]) => role.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label.replace(/^[\p{Emoji}\u{FE0F}\s]+/u, "").trim());
     const memberNames = [...members.values()].map(m => m.displayName);
-    const memberStr = memberNames.length === 0 ? "*No members*"
-      : memberNames.length > 40 ? memberNames.slice(0, 40).join("\n") + `\n… and ${memberNames.length - 40} more`
-      : memberNames.join("\n");
-    const permStr = perms.length === 0 ? "*No notable permissions*" : perms.join("\n");
+    const memberStr = memberNames.length === 0 ? "None"
+      : memberNames.length > 50 ? memberNames.slice(0, 50).join(", ") + ` (+${memberNames.length - 50} more)`
+      : memberNames.join(", ");
+    const permStr = perms.length === 0 ? "None" : perms.join(", ");
     const embed = new EmbedBuilder()
       .setColor(role.color || 0x5865f2)
-      .setTitle(`@${role.name}`)
-      .setDescription(`**${members.size}** member${members.size !== 1 ? "s" : ""} have this role`)
+      .setTitle(`@${role.name}  ·  ${members.size} member${members.size !== 1 ? "s" : ""}`)
       .addFields(
-        { name: "Members", value: memberStr.slice(0, 1024), inline: true },
-        { name: "Permissions", value: permStr.slice(0, 1024), inline: true },
-      )
-      .setFooter({ text: `Role ID: ${role.id}` });
+        { name: "Members", value: memberStr.slice(0, 1024), inline: false },
+        { name: "Permissions", value: permStr.slice(0, 1024), inline: false },
+      );
     await message.channel.send({ embeds: [embed] });
     return;
   }
