@@ -2037,7 +2037,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const ch = slash.channel as TextChannel;
         const fetched = await ch.messages.fetch({ limit: 50 });
         const targetMsg = fetched.filter(m => m.author.id === target.id && m.deletable).first();
-        const name = (await slash.guild.members.fetch(target.id).catch(() => null))?.displayName ?? target.username;
+        const member = await slash.guild.members.fetch(target.id).catch(() => null);
+        const name = member?.displayName ?? target.username;
+        const avatarURL = target.displayAvatarURL({ size: 256 });
         if (targetMsg) await targetMsg.delete().catch(() => {});
         const originalText = targetMsg?.content?.trim() || null;
         const resp = await groq.chat.completions.create({
@@ -2049,9 +2051,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
           ],
         });
         const fake = resp.choices[0]?.message?.content?.trim() ?? `bro i actually think i'm built different ngl`;
+        const webhooks = await ch.fetchWebhooks();
+        let wh = webhooks.find(w => w.owner?.id === client.user?.id) ?? await ch.createWebhook({ name: "GTBP" });
         await slash.deleteReply();
-        await ch.send(`**${name}**: ${fake}`);
-      } catch (e) { await slash.editReply("Couldn't do that right now."); }
+        await wh.send({ content: fake, username: name, avatarURL });
+      } catch (e) { await slash.editReply("Couldn't do that right now. Make sure I have Manage Webhooks permission."); }
       return;
     }
 
@@ -3270,12 +3274,12 @@ client.on(Events.MessageCreate, async (message: Message) => {
       : message.guild.members.cache.find(m => m.user.username.toLowerCase() === userId.toLowerCase() || m.displayName.toLowerCase() === userId.toLowerCase()) ?? null;
     if (!member) { await message.channel.send("Couldn't find that user."); return; }
     const targetName = member.displayName;
+    const avatarURL = member.user.displayAvatarURL({ size: 256 });
     await message.delete().catch(() => {});
-    const thinking = await message.channel.send("...");
     try {
       const ch = message.channel as TextChannel;
       const fetched = await ch.messages.fetch({ limit: 50 });
-      const targetMsg = fetched.filter(m => m.author.id === member.user.id && m.deletable && m.id !== thinking.id).first();
+      const targetMsg = fetched.filter(m => m.author.id === member.user.id && m.deletable).first();
       if (targetMsg) await targetMsg.delete().catch(() => {});
       const originalText = targetMsg?.content?.trim() || null;
       const resp = await groq.chat.completions.create({
@@ -3287,8 +3291,10 @@ client.on(Events.MessageCreate, async (message: Message) => {
         ],
       });
       const fake = resp.choices[0]?.message?.content?.trim() ?? `bro i actually think i'm built different ngl`;
-      await thinking.edit(`**${targetName}**: ${fake}`);
-    } catch { await thinking.edit("Couldn't do that right now."); }
+      const webhooks = await ch.fetchWebhooks();
+      let wh = webhooks.find(w => w.owner?.id === client.user?.id) ?? await ch.createWebhook({ name: "GTBP" });
+      await wh.send({ content: fake, username: targetName, avatarURL });
+    } catch { await message.channel.send("Couldn't do that right now. Make sure I have Manage Webhooks permission."); }
     return;
   }
 
