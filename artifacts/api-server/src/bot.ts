@@ -923,7 +923,6 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMembers,
   ],
   partials: [Partials.Message, Partials.Channel],
 });
@@ -2000,8 +1999,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!slash.guild) { await slash.reply({ content: "Server only.", ephemeral: true }); return; }
       const roleOpt = slash.options.getRole("role", true) as Role;
       await slash.deferReply();
-      await slash.guild.members.fetch();
-      const members = slash.guild.members.cache.filter(m => m.roles.cache.has(roleOpt.id)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+      const members = roleOpt.members.sort((a, b) => a.displayName.localeCompare(b.displayName));
       const perms = NOTABLE_PERMISSIONS.filter(([flag]) => roleOpt.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label);
       const memberNames = [...members.values()].map(m => m.displayName);
       const memberStr = memberNames.length === 0 ? "*No members*"
@@ -3313,8 +3311,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
       ?? message.guild.roles.cache.find(r => r.name.toLowerCase() === roleArg.toLowerCase())
       ?? null;
     if (!role) { await message.channel.send("❌ Role not found. Try mentioning it with @role."); return; }
-    await message.guild.members.fetch();
-    const members = message.guild.members.cache.filter(m => m.roles.cache.has(role.id)).sort((a, b) => a.displayName.localeCompare(b.displayName));
+    const members = role.members.sort((a, b) => a.displayName.localeCompare(b.displayName));
     const perms = NOTABLE_PERMISSIONS.filter(([flag]) => role.permissions.has(PermissionsBitField.Flags[flag])).map(([, label]) => label);
     const memberNames = [...members.values()].map(m => m.displayName);
     const memberStr = memberNames.length === 0 ? "*No members*"
