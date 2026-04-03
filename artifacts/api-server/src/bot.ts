@@ -2035,19 +2035,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await slash.deferReply({ ephemeral: true });
       try {
         const ch = slash.channel as TextChannel;
-        const fetched = await ch.messages.fetch({ limit: 50 });
-        const targetMsg = fetched.filter(m => m.author.id === target.id && m.deletable).first();
+        const fetched = await ch.messages.fetch({ limit: 100 });
+        const targetMsg = fetched.filter(m => m.author.id === target.id && m.deletable && m.content.trim().length > 0).first();
         const member = await slash.guild.members.fetch(target.id).catch(() => null);
         const name = member?.displayName ?? target.username;
         const avatarURL = target.displayAvatarURL({ size: 256 });
         if (targetMsg) await targetMsg.delete().catch(() => {});
         const originalText = targetMsg?.content?.trim() || null;
+        const fakeModes = [
+          `a genuinely dumb take or opinion stated with full confidence — the kind of thing you'd screenshot and send to your friends`,
+          `an embarrassing overshare — something personal they definitely didn't mean to say out loud in a group chat`,
+          `starting unnecessary beef — unprompted calling someone out or stirring drama out of nowhere`,
+          `a weird private admission — confessing to something strange or cringe they do when nobody's watching`,
+          `a complete spiral over something small — acting like a minor thing just destroyed them`,
+          `a massive self-own — saying something that accidentally makes them look terrible without realizing it`,
+          `a delusional hot take about themselves — acting way too confident about something they have no business being confident about`,
+        ];
+        const mode = fakeModes[Math.floor(Math.random() * fakeModes.length)];
         const resp = await groq.chat.completions.create({
           model: "llama-3.3-70b-versatile",
           max_tokens: 120,
           messages: [
-            { role: "system", content: `You are writing a message that ${name} supposedly just sent in a group chat. Make it stupid and embarrassing — a dumb take, an unhinged overshare, a weird claim, something that sounds like a real person having a genuinely bad moment online. Nothing corny or try-hard. No emojis. No quotes. One or two sentences. Sound like an actual human being being stupid.` },
-            { role: "user", content: originalText ? `Their actual message was: "${originalText}". Write a stupid version as them.` : `Write something stupid as ${name}.` },
+            { role: "system", content: `You are writing a message that ${name} supposedly just sent in a group chat. Type of message: ${mode}. Sound like a real person having a genuine moment online. Nothing corny or try-hard. No emojis. No quotes around the message. One or two sentences max.` },
+            { role: "user", content: originalText ? `Their actual last message was: "${originalText}". Write a fake version of them in that mode.` : `Write a fake message as ${name} in that mode.` },
           ],
         });
         const fake = resp.choices[0]?.message?.content?.trim() ?? `bro i actually think i'm built different ngl`;
@@ -3278,16 +3288,26 @@ client.on(Events.MessageCreate, async (message: Message) => {
     await message.delete().catch(() => {});
     try {
       const ch = message.channel as TextChannel;
-      const fetched = await ch.messages.fetch({ limit: 50 });
-      const targetMsg = fetched.filter(m => m.author.id === member.user.id && m.deletable).first();
+      const fetched = await ch.messages.fetch({ limit: 100 });
+      const targetMsg = fetched.filter(m => m.author.id === member.user.id && m.deletable && m.content.trim().length > 0).first();
       if (targetMsg) await targetMsg.delete().catch(() => {});
       const originalText = targetMsg?.content?.trim() || null;
+      const fakeModes = [
+        `a genuinely dumb take or opinion stated with full confidence — the kind of thing you'd screenshot and send to your friends`,
+        `an embarrassing overshare — something personal they definitely didn't mean to say out loud in a group chat`,
+        `starting unnecessary beef — unprompted calling someone out or stirring drama out of nowhere`,
+        `a weird private admission — confessing to something strange or cringe they do when nobody's watching`,
+        `a complete spiral over something small — acting like a minor thing just destroyed them`,
+        `a massive self-own — saying something that accidentally makes them look terrible without realizing it`,
+        `a delusional hot take about themselves — acting way too confident about something they have no business being confident about`,
+      ];
+      const mode = fakeModes[Math.floor(Math.random() * fakeModes.length)];
       const resp = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         max_tokens: 120,
         messages: [
-          { role: "system", content: `You are writing a message that ${targetName} supposedly just sent in a group chat. Make it stupid and embarrassing — a dumb take, an unhinged overshare, a weird claim, something that sounds like a real person having a genuinely bad moment online. Nothing corny or try-hard. No emojis. No quotes. One or two sentences. Sound like an actual human being being stupid.` },
-          { role: "user", content: originalText ? `Their actual message was: "${originalText}". Write a stupid version as them.` : `Write something stupid as ${targetName}.` },
+          { role: "system", content: `You are writing a message that ${targetName} supposedly just sent in a group chat. Type of message: ${mode}. Sound like a real person having a genuine moment online. Nothing corny or try-hard. No emojis. No quotes around the message. One or two sentences max.` },
+          { role: "user", content: originalText ? `Their actual last message was: "${originalText}". Write a fake version of them in that mode.` : `Write a fake message as ${targetName} in that mode.` },
         ],
       });
       const fake = resp.choices[0]?.message?.content?.trim() ?? `bro i actually think i'm built different ngl`;
