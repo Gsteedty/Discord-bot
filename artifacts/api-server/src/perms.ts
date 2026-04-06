@@ -5,7 +5,7 @@ const DATA_PATH = path.join(process.cwd(), "perms.json");
 
 type PermsData = Record<string, Record<string, string[]>>;
 
-export const ALL_COMMANDS = ["say", "spam", "spamme", "delete", "ping", "ttt", "latency", "user", "role", "dm", "8ball", "rps", "roll", "flip", "mock", "compliment", "bully", "ragebait", "fake", "snipe", "avatar", "uwr", "balance", "addmoney", "takemoney", "givemoney", "shop", "buy", "garage"];
+export const ALL_COMMANDS = ["say", "spam", "spamme", "delete", "ping", "ttt", "latency", "user", "role", "dm", "deletedm", "8ball", "rps", "roll", "flip", "mock", "compliment", "bully", "ragebait", "fake", "snipe", "avatar", "uwr", "balance", "addmoney", "takemoney", "givemoney", "shop", "buy", "garage"];
 // "help", "perms", "ai" are excluded — always available or already owner-only
 
 export const COMMAND_LABELS: Record<string, string> = {
@@ -19,6 +19,7 @@ export const COMMAND_LABELS: Record<string, string> = {
   user: "User Info",
   role: "Manage Roles",
   dm: "Send DM",
+  deletedm: "Delete DM",
   "8ball": "8-Ball",
   rps: "Rock Paper Scissors",
   roll: "Dice Roll",
