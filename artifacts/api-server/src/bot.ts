@@ -494,7 +494,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: "`say <message>`",                        value: "Make the bot say something in the current channel",                                                                                    inline: false },
     { name: `\`spam <count> [#channel] <message>\``,  value: `Send a message up to **${MAX_SPAM_COUNT}** times. Target a different channel optionally. Works in DMs too`,                          inline: false },
     { name: `\`spamme <count> [#channel] <message>\``,value: "Send a message that looks like it came **from you** via webhook *(server only)*",                                                     inline: false },
-    { name: `\`dm @user [count] <message>\``,         value: `Slide into someone's DMs up to **${MAX_DM_COUNT}** times. Add \`--ping\` to also ping them in the channel *(server only)*`,          inline: false },
+    { name: `\`dm @user [count] <message>\``,         value: `Slide into someone's DMs up to **${MAX_DM_COUNT}** times *(server only)*`,          inline: false },
     { name: "`deletedm @user`",                       value: "Delete all bot messages in a DM with a user and close the conversation",                                                              inline: false },
     { name: "`ping <username>`",                      value: "Silently ping a user — mentions them then instantly deletes the ping message *(server only)*",                                       inline: false },
   );
@@ -1509,7 +1509,6 @@ const SLASH_COMMANDS = [
       { name: "user", description: "Who to DM (mention or username)", type: ApplicationCommandOptionType.User, required: true },
       { name: "message", description: "What to send them", type: ApplicationCommandOptionType.String, required: true },
       { name: "count", description: `How many copies to send (default 1, max ${MAX_DM_COUNT})`, type: ApplicationCommandOptionType.Integer, required: false, min_value: 1, max_value: MAX_DM_COUNT },
-      { name: "ping", description: "Also ping them in this channel? (server only)", type: ApplicationCommandOptionType.Boolean, required: false },
     ],
     integration_types: [0, 1],
     contexts: [0, 1, 2],
@@ -1900,7 +1899,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const target = slash.options.getUser("user", true);
       const text = slash.options.getString("message", true);
       const count = slash.options.getInteger("count") ?? 1;
-      const doPing = (slash.options.getBoolean("ping") ?? false) && !!slash.guild;
       await slash.deferReply({ ephemeral: true });
 
       let paused = false;
@@ -1958,11 +1956,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           sent++;
           await updateProgress();
         }
-        if (doPing && !stopped) await (slash.channel as TextChannel).send(`<@${target.id}>`).then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
         collector.stop("done");
         const finalMsg = stopped
           ? `Stopped — sent **${sent} / ${count}** DMs to **${target.username}**.`
-          : `Done! Sent all **${sent} / ${count}** DMs to **${target.username}**.${doPing ? " Pinged them too." : ""}`;
+          : `Done! Sent all **${sent} / ${count}** DMs to **${target.username}**`;
         await slash.editReply({ content: finalMsg, components: [doneRow()] }).catch(() => {});
       } catch (err) {
         collector.stop("error");
@@ -3225,10 +3222,8 @@ client.on(Events.MessageCreate, async (message: Message) => {
   if (command === "dm") {
     if (!canUse("dm")) { await message.channel.send("You don't have permission to use that command."); return; }
     if (!message.guild) { await message.channel.send("Server only command."); return; }
-    // Usage: -dm <@user|username> [--ping] <message>
-    if (!args.length) { await message.channel.send(`Usage: \`-dm <@user or username> [count] <message>\` — add \`--ping\` to also ping them. Count up to ${MAX_DM_COUNT}.`); return; }
-    const doPing = args.includes("--ping");
-    const cleanArgs = args.filter(a => a !== "--ping");
+    if (!args.length) { await message.channel.send(`Usage: \`-dm <@user or username> [count] <message>\` — count up to ${MAX_DM_COUNT}.`); return; }
+    const cleanArgs = args;
     if (cleanArgs.length < 2) { await message.channel.send(`Usage: \`-dm <@user or username> [count] <message>\``); return; }
     const userArg = cleanArgs[0].replace(/[<@!>]/g, "");
     // Optional count as second arg
@@ -3262,11 +3257,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
           }
         }
       }
-      if (doPing) {
-        const pingMsg = await (message.channel as TextChannel).send(`<@${target.id}>`);
-        setTimeout(() => pingMsg.delete().catch(() => {}), 3000);
-      }
-      await status.edit(`✅ Sent **${count}** DM${count !== 1 ? "s" : ""} to **${target.username}**.${doPing ? " Pinged them too." : ""}`);
+      await status.edit(`✅ Sent **${count}** DM${count !== 1 ? "s" : ""} to **${target.username}**.`);
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
       await status.edit(
