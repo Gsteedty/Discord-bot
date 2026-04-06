@@ -1902,7 +1902,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const doPing = (slash.options.getBoolean("ping") ?? false) && !!slash.guild;
       await slash.deferReply({ ephemeral: true });
       try {
-        for (let i = 0; i < count; i++) await target.send(text);
+        for (let i = 0; i < count; i++) {
+          for (let attempt = 0; attempt < 15; attempt++) {
+            try { await target.send(text); break; }
+            catch (se: any) {
+              if (se?.status === 429 || se?.code === 429) await new Promise(r => setTimeout(r, ((se.retryAfter ?? 2) * 1000) + 500));
+              else throw se;
+            }
+          }
+        }
         if (doPing) await (slash.channel as TextChannel).send(`<@${target.id}>`).then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
         await slash.editReply(`✅ Sent **${count}** DM${count !== 1 ? "s" : ""} to **${target.username}**.${doPing ? " Pinged them too." : ""}`);
       } catch (err) {
@@ -3192,7 +3200,15 @@ client.on(Events.MessageCreate, async (message: Message) => {
     if (!target) { await message.channel.send(`❌ Couldn't find user **${cleanArgs[0]}**.`); return; }
     const status = await message.channel.send(`⏳ Sending **${count}** DM${count !== 1 ? "s" : ""} to **${target.username}**...`);
     try {
-      for (let i = 0; i < count; i++) await target.send(text);
+      for (let i = 0; i < count; i++) {
+        for (let attempt = 0; attempt < 15; attempt++) {
+          try { await target.send(text); break; }
+          catch (se: any) {
+            if (se?.status === 429 || se?.code === 429) await new Promise(r => setTimeout(r, ((se.retryAfter ?? 2) * 1000) + 500));
+            else throw se;
+          }
+        }
+      }
       if (doPing) {
         const pingMsg = await (message.channel as TextChannel).send(`<@${target.id}>`);
         setTimeout(() => pingMsg.delete().catch(() => {}), 3000);
