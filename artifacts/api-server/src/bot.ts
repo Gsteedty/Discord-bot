@@ -1796,7 +1796,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       try {
         for (let i = 0; i < count; i++) {
           await targetChannel.send(spamText);
-          if (count > 5 && i < count - 1) await new Promise(r => setTimeout(r, 800));
+          if (i < count - 1) await new Promise(r => setTimeout(r, 200));
         }
       } catch (e: any) {
         const isPerms = e?.code === 50013 || e?.code === 50001;
@@ -1928,14 +1928,25 @@ client.on(Events.InteractionCreate, async (interaction) => {
         let deleted = 0;
         let lastId: string | undefined;
         while (true) {
-          const msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) });
-          if (msgs.size === 0) break;
-          const botMsgs = msgs.filter(m => m.author.id === client.user!.id);
-          for (const msg of botMsgs.values()) {
-            await msg.delete().catch(() => {});
-            deleted++;
-            await new Promise(r => setTimeout(r, 350));
+          let msgs: any;
+          for (let attempt = 0; attempt < 20; attempt++) {
+            try { msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) }); break; }
+            catch (fe: any) {
+              if (fe?.status === 429 || fe?.code === 429) await new Promise(r => setTimeout(r, ((fe.retryAfter ?? 2) * 1000) + 600));
+              else throw fe;
+            }
           }
+          if (!msgs || msgs.size === 0) break;
+          const botMsgs = msgs.filter((m: any) => m.author.id === client.user!.id);
+          await Promise.allSettled([...botMsgs.values()].map(async (msg: any) => {
+            for (let attempt = 0; attempt < 10; attempt++) {
+              try { await msg.delete(); deleted++; break; }
+              catch (de: any) {
+                if (de?.status === 429 || de?.code === 429) await new Promise(r => setTimeout(r, ((de.retryAfter ?? 1) * 1000) + 400));
+                else break;
+              }
+            }
+          }));
           if (msgs.size < 100) break;
           lastId = msgs.last()?.id;
         }
@@ -3046,7 +3057,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
     try {
       for (let i = 0; i < count; i++) {
         await targetSpamChannel.send(spamText);
-        if (count > 5 && i < count - 1) await new Promise(r => setTimeout(r, 800));
+        if (i < count - 1) await new Promise(r => setTimeout(r, 200));
       }
     } catch (e: any) {
       const isPerms = e?.code === 50013 || e?.code === 50001;
@@ -3211,14 +3222,25 @@ client.on(Events.MessageCreate, async (message: Message) => {
       let deleted = 0;
       let lastId: string | undefined;
       while (true) {
-        const msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) });
-        if (msgs.size === 0) break;
-        const botMsgs = msgs.filter(m => m.author.id === client.user!.id);
-        for (const msg of botMsgs.values()) {
-          await msg.delete().catch(() => {});
-          deleted++;
-          await new Promise(r => setTimeout(r, 350));
+        let msgs: any;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          try { msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) }); break; }
+          catch (fe: any) {
+            if (fe?.status === 429 || fe?.code === 429) await new Promise(r => setTimeout(r, ((fe.retryAfter ?? 2) * 1000) + 600));
+            else throw fe;
+          }
         }
+        if (!msgs || msgs.size === 0) break;
+        const botMsgs = msgs.filter((m: any) => m.author.id === client.user!.id);
+        await Promise.allSettled([...botMsgs.values()].map(async (msg: any) => {
+          for (let attempt = 0; attempt < 10; attempt++) {
+            try { await msg.delete(); deleted++; break; }
+            catch (de: any) {
+              if (de?.status === 429 || de?.code === 429) await new Promise(r => setTimeout(r, ((de.retryAfter ?? 1) * 1000) + 400));
+              else break;
+            }
+          }
+        }));
         if (msgs.size < 100) break;
         lastId = msgs.last()?.id;
       }
