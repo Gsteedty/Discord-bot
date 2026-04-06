@@ -494,6 +494,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: `\`spam <count> [#channel] <message>\``,  value: `Send a message up to **${MAX_SPAM_COUNT}** times. Target a different channel optionally. Works in DMs too`,                          inline: false },
     { name: `\`spamme <count> [#channel] <message>\``,value: "Send a message that looks like it came **from you** via webhook *(server only)*",                                                     inline: false },
     { name: `\`dm @user [count] <message>\``,         value: `Slide into someone's DMs up to **${MAX_DM_COUNT}** times. Add \`--ping\` to also ping them in the channel *(server only)*`,          inline: false },
+    { name: "`deletedm @user`",                       value: "Delete all bot messages in a DM with a user and close the conversation",                                                              inline: false },
     { name: "`ping <username>`",                      value: "Silently ping a user — mentions them then instantly deletes the ping message *(server only)*",                                       inline: false },
   );
 
@@ -1512,6 +1513,15 @@ const SLASH_COMMANDS = [
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
+  {
+    name: "deletedm",
+    description: "Delete all bot messages in a DM with a user and close the conversation",
+    options: [
+      { name: "user", description: "Who to clean up the DM with", type: ApplicationCommandOptionType.User, required: true },
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
   // ── Economy ──────────────────────────────────────────────────────────────────
   {
     name: "balance",
@@ -1904,6 +1914,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
             ? `❌ Couldn't DM **${target.username}** — the bot doesn't share a server with them or they have DMs closed.`
             : `❌ Failed: ${errMsg.slice(0, 200)}`
         );
+      }
+      return;
+    }
+
+    // /deletedm
+    if (slash.commandName === "deletedm") {
+      if (!canUse("deletedm")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user", true);
+      await slash.deferReply({ ephemeral: true });
+      try {
+        const dmChannel = await target.createDM();
+        let deleted = 0;
+        let lastId: string | undefined;
+        while (true) {
+          const msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) });
+          if (msgs.size === 0) break;
+          const botMsgs = msgs.filter(m => m.author.id === client.user!.id);
+          for (const msg of botMsgs.values()) {
+            await msg.delete().catch(() => {});
+            deleted++;
+            await new Promise(r => setTimeout(r, 350));
+          }
+          if (msgs.size < 100) break;
+          lastId = msgs.last()?.id;
+        }
+        await dmChannel.delete().catch(() => {});
+        await slash.editReply(`Deleted **${deleted}** bot message${deleted !== 1 ? "s" : ""} in the DM with **${target.username}** and closed the conversation.`);
+      } catch (e: any) {
+        await slash.editReply(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
       }
       return;
     }
@@ -3155,6 +3194,38 @@ client.on(Events.MessageCreate, async (message: Message) => {
           ? `❌ Couldn't DM **${target.username}** — they likely have DMs turned off or have the bot blocked.`
           : `❌ Failed: ${errMsg.slice(0, 200)}`
       );
+    }
+    return;
+  }
+
+  if (command === "deletedm") {
+    if (!canUse("deletedm")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const userArg = args[0];
+    if (!userArg) { await message.channel.send("Usage: `-deletedm <@user>`"); return; }
+    const userId = userArg.replace(/[<@!>]/g, "");
+    const target = await client.users.fetch(userId).catch(() => null);
+    if (!target) { await message.channel.send("Couldn't find that user."); return; }
+    const status = await message.channel.send(`Cleaning up DM with **${target.username}**...`);
+    try {
+      const dmChannel = await target.createDM();
+      let deleted = 0;
+      let lastId: string | undefined;
+      while (true) {
+        const msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) });
+        if (msgs.size === 0) break;
+        const botMsgs = msgs.filter(m => m.author.id === client.user!.id);
+        for (const msg of botMsgs.values()) {
+          await msg.delete().catch(() => {});
+          deleted++;
+          await new Promise(r => setTimeout(r, 350));
+        }
+        if (msgs.size < 100) break;
+        lastId = msgs.last()?.id;
+      }
+      await dmChannel.delete().catch(() => {});
+      await status.edit(`Deleted **${deleted}** bot message${deleted !== 1 ? "s" : ""} in the DM with **${target.username}** and closed the conversation.`);
+    } catch (e: any) {
+      await status.edit(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
     }
     return;
   }
