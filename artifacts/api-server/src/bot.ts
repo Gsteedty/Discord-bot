@@ -30,6 +30,7 @@ import {
   TextInputBuilder,
   TextInputStyle,
   ModalSubmitInteraction,
+  ComponentType,
 } from "discord.js";
 import Groq from "groq-sdk";
 import { logger } from "./lib/logger";
@@ -1901,27 +1902,79 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const count = slash.options.getInteger("count") ?? 1;
       const doPing = (slash.options.getBoolean("ping") ?? false) && !!slash.guild;
       await slash.deferReply({ ephemeral: true });
+
+      let paused = false;
+      let stopped = false;
+      let sent = 0;
+
+      const makeRow = (isPaused: boolean) => new ActionRowBuilder<ButtonBuilder>().addComponents(
+        isPaused
+          ? new ButtonBuilder().setCustomId("dm_resume").setLabel("Resume").setStyle(ButtonStyle.Success)
+          : new ButtonBuilder().setCustomId("dm_pause").setLabel("Pause").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId("dm_stop").setLabel("Stop").setStyle(ButtonStyle.Danger),
+      );
+      const doneRow = () => new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId("dm_done_disp").setLabel("Done").setStyle(ButtonStyle.Secondary).setDisabled(true),
+      );
+      const progressMsg = (s: number, status = "") =>
+        `Sending DMs to **${target.username}**\n**${s} / ${count}** sent${status ? `  —  ${status}` : ""}`;
+
+      await slash.editReply({ content: progressMsg(0), components: [makeRow(false)] });
+      const reply = await slash.fetchReply();
+
+      const collector = reply.createMessageComponentCollector({
+        componentType: ComponentType.Button,
+        filter: (i) => i.user.id === slash.user.id && ["dm_pause","dm_resume","dm_stop"].includes(i.customId),
+        time: 24 * 60 * 60 * 1000,
+      });
+      collector.on("collect", async (i) => {
+        await i.deferUpdate();
+        if (i.customId === "dm_pause") {
+          paused = true;
+          await slash.editReply({ content: progressMsg(sent, "paused"), components: [makeRow(true)] }).catch(() => {});
+        } else if (i.customId === "dm_resume") {
+          paused = false;
+          await slash.editReply({ content: progressMsg(sent), components: [makeRow(false)] }).catch(() => {});
+        } else if (i.customId === "dm_stop") {
+          stopped = true;
+          collector.stop("user");
+        }
+      });
+
+      let lastUpdate = 0;
+      const updateProgress = async () => {
+        const now = Date.now();
+        if (now - lastUpdate < 600) return;
+        lastUpdate = now;
+        await slash.editReply({ content: progressMsg(sent, paused ? "paused" : ""), components: [makeRow(paused)] }).catch(() => {});
+      };
+
       try {
         for (let i = 0; i < count; i++) {
-          for (let attempt = 0; attempt < 15; attempt++) {
-            try { await target.send(text); break; }
-            catch (se: any) {
-              if (se?.status === 429 || se?.code === 429) await new Promise(r => setTimeout(r, ((se.retryAfter ?? 2) * 1000) + 500));
-              else throw se;
-            }
-          }
+          if (stopped) break;
+          while (paused && !stopped) await new Promise(r => setTimeout(r, 300));
+          if (stopped) break;
+          await target.send(text);
+          sent++;
+          await updateProgress();
         }
-        if (doPing) await (slash.channel as TextChannel).send(`<@${target.id}>`).then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
-        await slash.editReply(`✅ Sent **${count}** DM${count !== 1 ? "s" : ""} to **${target.username}**.${doPing ? " Pinged them too." : ""}`);
+        if (doPing && !stopped) await (slash.channel as TextChannel).send(`<@${target.id}>`).then(m => setTimeout(() => m.delete().catch(() => {}), 3000));
+        collector.stop("done");
+        const finalMsg = stopped
+          ? `Stopped — sent **${sent} / ${count}** DMs to **${target.username}**.`
+          : `Done! Sent all **${sent} / ${count}** DMs to **${target.username}**.${doPing ? " Pinged them too." : ""}`;
+        await slash.editReply({ content: finalMsg, components: [doneRow()] }).catch(() => {});
       } catch (err) {
+        collector.stop("error");
         const errMsg = err instanceof Error ? err.message : String(err);
-        await slash.editReply(
-          errMsg.includes("50007") || errMsg.includes("Cannot send messages to this user")
-            ? `❌ Couldn't DM **${target.username}** — they have DMs turned off or blocked the bot.`
+        await slash.editReply({
+          content: errMsg.includes("50007") || errMsg.includes("Cannot send messages to this user")
+            ? `Couldn't DM **${target.username}** — DMs off or bot blocked. Sent ${sent}/${count}.`
             : errMsg.includes("50001") || errMsg.includes("Missing Access")
-            ? `❌ Couldn't DM **${target.username}** — the bot doesn't share a server with them or they have DMs closed.`
-            : `❌ Failed: ${errMsg.slice(0, 200)}`
-        );
+            ? `Couldn't DM **${target.username}** — no shared server or DMs closed. Sent ${sent}/${count}.`
+            : `Failed after ${sent}/${count}: ${errMsg.slice(0, 200)}`,
+          components: [doneRow()],
+        }).catch(() => {});
       }
       return;
     }
