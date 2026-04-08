@@ -55,6 +55,12 @@ const MAX_SPAM_COUNT = 100;
 const MAX_DELETE_COUNT = 100;
 const MAX_DM_COUNT = 50;
 const DISCORD_EPOCH = 1420070400000n;
+const BASE_URL = (
+  process.env.RENDER_EXTERNAL_URL ||
+  process.env.PUBLIC_URL ||
+  (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "") ||
+  `http://localhost:${process.env.PORT ?? 8080}`
+).replace(/\/$/, "");
 
 const EIGHT_BALL_RESPONSES = [
   "It is certain.", "It is decidedly so.", "Without a doubt.", "Yes, definitely.", "You may rely on it.",
@@ -2125,8 +2131,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
         const html = buildDmLogHtml(allMsgs, client.user!.username, target.username);
         const logId = storeDmLog(html);
-        const baseUrl = (process.env.RENDER_EXTERNAL_URL ?? process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 8080}`).replace(/\/$/, "");
-        const logUrl = `${baseUrl}/logs/${logId}`;
+        const logUrl = `${BASE_URL}/logs/${logId}`;
         await slash.editReply({ content: `DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Link expires in 24h.\n${logUrl}` });
       } catch (e: any) {
         await slash.editReply(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
@@ -3459,8 +3464,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
       allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
       const html = buildDmLogHtml(allMsgs, client.user!.username, target.username);
       const logId = storeDmLog(html);
-      const baseUrl = (process.env.RENDER_EXTERNAL_URL ?? process.env.PUBLIC_URL ?? `http://localhost:${process.env.PORT ?? 8080}`).replace(/\/$/, "");
-      const logUrl = `${baseUrl}/logs/${logId}`;
+      const logUrl = `${BASE_URL}/logs/${logId}`;
       await status.delete().catch(() => {});
       await message.author.send(`DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Link expires in 24h.\n${logUrl}`);
       await message.channel.send(`Done! Link sent to your DMs.`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
