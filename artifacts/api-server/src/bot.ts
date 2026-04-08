@@ -1623,6 +1623,77 @@ client.on(Events.MessageDelete, (message) => {
   });
 });
 
+// ─── DM Log HTML Builder ──────────────────────────────────────────────────────
+function buildDmLogHtml(msgs: any[], botName: string, targetName: string): string {
+  const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  const fmtDate = (ts: number) => new Date(ts).toLocaleDateString("en-US", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
+  const fmtTime = (ts: number) => new Date(ts).toLocaleTimeString("en-US", { hour:"2-digit", minute:"2-digit" });
+  let lastDay = "";
+  let lastAuthor = "";
+  let lastTs = 0;
+  const rows: string[] = [];
+  for (const m of msgs) {
+    const day = fmtDate(m.createdTimestamp);
+    if (day !== lastDay) {
+      rows.push(`<div class="divider"><span>${esc(day)}</span></div>`);
+      lastDay = day;
+      lastAuthor = "";
+    }
+    const isBot = m.author.id === m.client?.user?.id || m.authorIsBot;
+    const cls = isBot ? "bot" : "user";
+    const name = esc(isBot ? botName : targetName);
+    const initial = name[0]?.toUpperCase() ?? "?";
+    let content = esc(m.content || "");
+    if (m.attachments?.size) content += (content ? " " : "") + [...m.attachments.values()].map((a: any) => `<span class="tag attach">📎 ${esc(a.name ?? "attachment")}</span>`).join(" ");
+    if (m.embeds?.length) content += (content ? " " : "") + `<span class="tag embed">🔗 ${m.embeds.length} embed${m.embeds.length > 1 ? "s" : ""}</span>`;
+    if (m.stickers?.size) content += (content ? " " : "") + [...m.stickers.values()].map((s: any) => `<span class="tag sticker">🎭 ${esc(s.name)}</span>`).join(" ");
+    if (!content) content = `<span class="empty">[no text content]</span>`;
+    const compact = lastAuthor === cls && (m.createdTimestamp - lastTs) < 5 * 60 * 1000;
+    lastAuthor = cls; lastTs = m.createdTimestamp;
+    if (compact) {
+      rows.push(`<div class="msg compact"><div class="spacer"></div><div class="body"><div class="content">${content}</div></div></div>`);
+    } else {
+      rows.push(`<div class="msg"><div class="avatar ${cls}">${initial}</div><div class="body"><div class="meta"><span class="author ${cls}">${name}${isBot ? ' <span class="badge">BOT</span>' : ''}</span><span class="ts">${fmtTime(m.createdTimestamp)}</span></div><div class="content">${content}</div></div></div>`);
+    }
+  }
+  const total = msgs.length;
+  const exported = new Date().toUTCString();
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>DM Log — ${esc(botName)} ↔ ${esc(targetName)}</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#313338;color:#dcddde;font-family:'gg sans','Noto Sans',Whitney,'Helvetica Neue',Arial,sans-serif;padding:24px;max-width:860px;margin:0 auto}
+.header{background:#1e1f22;border-radius:12px;padding:20px 24px;margin-bottom:24px;border-left:4px solid #5865f2}
+.header h1{font-size:18px;font-weight:700;color:#fff;margin-bottom:4px}
+.header .sub{font-size:13px;color:#949ba4}
+.messages{display:flex;flex-direction:column;gap:0}
+.divider{display:flex;align-items:center;gap:12px;margin:20px 0 8px;padding:0 8px}
+.divider::before,.divider::after{content:'';flex:1;height:1px;background:#3f4147}
+.divider span{font-size:12px;font-weight:600;color:#949ba4;white-space:nowrap}
+.msg{display:flex;gap:16px;padding:4px 8px;border-radius:4px;transition:background .1s}
+.msg:hover{background:#2e3035}
+.msg.compact{padding:2px 8px}
+.spacer{width:40px;flex-shrink:0}
+.avatar{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:17px;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px}
+.avatar.bot{background:#5865f2}
+.avatar.user{background:#ed4245}
+.body{flex:1;min-width:0}
+.meta{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+.author{font-weight:600;font-size:15px}
+.author.bot{color:#5865f2}
+.author.user{color:#ed4245}
+.badge{background:#5865f2;color:#fff;font-size:9px;font-weight:700;padding:1px 4px;border-radius:3px;vertical-align:middle;margin-left:2px;letter-spacing:.5px}
+.ts{font-size:11px;color:#949ba4}
+.content{font-size:15px;line-height:1.4;color:#dcddde;word-break:break-word;white-space:pre-wrap}
+.empty{color:#949ba4;font-style:italic}
+.tag{display:inline-block;background:#2b2d31;border:1px solid #3f4147;border-radius:4px;padding:1px 7px;font-size:12px;margin:1px 2px;color:#b5bac1}
+.tag.attach{color:#00a8fc}
+.tag.embed{color:#faa61a}
+.tag.sticker{color:#57f287}
+</style></head><body>
+<div class="header"><h1>💬 ${esc(botName)} ↔ ${esc(targetName)}</h1><div class="sub">${total} message${total !== 1 ? "s" : ""}  •  Exported ${esc(exported)}</div></div>
+<div class="messages">${rows.join("\n")}</div>
+</body></html>`;
+}
+
 // ─── Interactions ─────────────────────────────────────────────────────────────
 
 client.on(Events.InteractionCreate, async (interaction) => {
@@ -2051,26 +2122,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           lastId = msgs.last()?.id;
         }
         allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-        const lines: string[] = [
-          `=== DM Log: ${client.user!.username} ↔ ${target.username} ===`,
-          `Exported: ${new Date().toUTCString()}`,
-          `Total messages: ${allMsgs.length}`,
-          `${"─".repeat(60)}`,
-          "",
-        ];
-        for (const m of allMsgs) {
-          const ts = new Date(m.createdTimestamp).toISOString().replace("T", " ").slice(0, 19);
-          const who = m.author.id === client.user!.id ? `[BOT] ${client.user!.username}` : `[USER] ${m.author.username}`;
-          let content = m.content || "";
-          if (m.attachments.size) content += (content ? " " : "") + [...m.attachments.values()].map((a: any) => `[Attachment: ${a.name ?? a.url}]`).join(" ");
-          if (m.embeds.length) content += (content ? " " : "") + `[${m.embeds.length} embed${m.embeds.length > 1 ? "s" : ""}]`;
-          if (m.stickers.size) content += (content ? " " : "") + `[Sticker: ${[...m.stickers.values()].map((s: any) => s.name).join(", ")}]`;
-          if (!content) content = "[no text content]";
-          lines.push(`[${ts} UTC] ${who}: ${content}`);
-        }
-        const buf = Buffer.from(lines.join("\n"), "utf8");
-        const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.txt` });
-        await slash.editReply({ content: `Here's the full DM log with **${target.username}** — ${allMsgs.length} message${allMsgs.length !== 1 ? "s" : ""} total.`, files: [attachment] });
+        const html = buildDmLogHtml(allMsgs, client.user!.username, target.username);
+        const buf = Buffer.from(html, "utf8");
+        const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.html` });
+        await slash.editReply({ content: `DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Download and open in your browser.`, files: [attachment] });
       } catch (e: any) {
         await slash.editReply(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
       }
@@ -3400,27 +3455,11 @@ client.on(Events.MessageCreate, async (message: Message) => {
         lastId = msgs.last()?.id;
       }
       allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-      const lines: string[] = [
-        `=== DM Log: ${client.user!.username} ↔ ${target.username} ===`,
-        `Exported: ${new Date().toUTCString()}`,
-        `Total messages: ${allMsgs.length}`,
-        `${"─".repeat(60)}`,
-        "",
-      ];
-      for (const m of allMsgs) {
-        const ts = new Date(m.createdTimestamp).toISOString().replace("T", " ").slice(0, 19);
-        const who = m.author.id === client.user!.id ? `[BOT] ${client.user!.username}` : `[USER] ${m.author.username}`;
-        let content = m.content || "";
-        if (m.attachments.size) content += (content ? " " : "") + [...m.attachments.values()].map((a: any) => `[Attachment: ${a.name ?? a.url}]`).join(" ");
-        if (m.embeds.length) content += (content ? " " : "") + `[${m.embeds.length} embed${m.embeds.length > 1 ? "s" : ""}]`;
-        if (m.stickers.size) content += (content ? " " : "") + `[Sticker: ${[...m.stickers.values()].map((s: any) => s.name).join(", ")}]`;
-        if (!content) content = "[no text content]";
-        lines.push(`[${ts} UTC] ${who}: ${content}`);
-      }
-      const buf = Buffer.from(lines.join("\n"), "utf8");
-      const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.txt` });
+      const html = buildDmLogHtml(allMsgs, client.user!.username, target.username);
+      const buf = Buffer.from(html, "utf8");
+      const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.html` });
       await status.delete().catch(() => {});
-      await message.author.send({ content: `Here's the full DM log with **${target.username}** — ${allMsgs.length} message${allMsgs.length !== 1 ? "s" : ""} total.`, files: [attachment] });
+      await message.author.send({ content: `DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Download and open in your browser.`, files: [attachment] });
       await message.channel.send(`Done! Log sent to your DMs.`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
     } catch (e: any) {
       await status.edit(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
