@@ -448,6 +448,7 @@ const HELP_CATS = [
   { id: "home",      label: "🏠 Home",         style: ButtonStyle.Secondary },
   { id: "games",     label: "🎮 Games",         style: ButtonStyle.Primary   },
   { id: "fun",       label: "🎭 Fun",           style: ButtonStyle.Primary   },
+  { id: "social",    label: "❤️ Social",        style: ButtonStyle.Primary   },
   { id: "messaging", label: "📢 Messaging",     style: ButtonStyle.Primary   },
   { id: "info",      label: "🔍 Info & Tools",  style: ButtonStyle.Primary   },
   { id: "economy",   label: "💰 Economy",       style: ButtonStyle.Success   },
@@ -487,7 +488,8 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
       "Pick a category with the buttons below.",
       "",
       "🎮 **Games** — 8-Ball, Rock Paper Scissors, Dice Roll, Coin Flip, Tic-Tac-Toe",
-      "🎭 **Fun** — Mock Text, AI Compliments",
+      "🎭 **Fun** — Mock Text, AI Compliments, Bully, Ragebait, Fake",
+      "❤️ **Social** — Ship, PP Meter, IQ, Simp Meter, Rate, Urban Dictionary, Poll",
       "📢 **Messaging** — Say, Spam, Spam as Me, DM, Silent Ping",
       "🔍 **Info & Tools** — User Info, Avatar, Latency, Snipe, Delete",
       "💰 **Economy** — Balance, Give Money, Car Shop, Buy Cars, Garage",
@@ -513,6 +515,17 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: "`bully @user <1-10>`",       value: "AI-generated roast at a chosen intensity (1 = soft, 10 = brutal)",                              inline: false },
     { name: "`ragebait @user [topic]`",   value: "AI drops a brutal, unfiltered accusation or hot take designed to set someone off",              inline: false },
     { name: "`fake @user`",               value: "Finds their last message, deletes it, and posts a stupid AI-written version as them",              inline: false },
+  );
+
+  // SOCIAL
+  embeds.social = base("❤️ Social").addFields(
+    { name: "`ship @user1 @user2`",   value: "Calculate compatibility between two users — generates a ship name, visual bar, and match rating (seeded & consistent)",   inline: false },
+    { name: "`pp [@user]`",           value: "Measure someone's pp size (1–20 inches). Seeded so the same person always gets the same result 🍆",                       inline: false },
+    { name: "`iq [@user]`",           value: "Run an IQ test (55–180). Seeded per user — ratings range from Confidently Dumb to Galaxy Brain 🧠",                      inline: false },
+    { name: "`simp [@user]`",         value: "Check someone's simp level (0–100%). Seeded per user — ranges from Stone Cold to CRITICAL SIMP LEVEL 🥺",               inline: false },
+    { name: "`rate [@user]`",         value: "Let the AI rate someone out of 10 with a fresh brutal one-liner every time ⭐",                                           inline: false },
+    { name: "`urban <word>`",         value: "Look up any word or phrase on Urban Dictionary — shows definition, example, thumbs up/down, and author 📖",              inline: false },
+    { name: "`poll <question>`",      value: "Post a yes/no poll in the channel with ✅ ❌ reactions. Deletes your command message to keep chat clean 📊 *(server only)*", inline: false },
   );
 
   // MESSAGING
