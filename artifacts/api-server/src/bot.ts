@@ -1365,43 +1365,49 @@ async function buildUserEmbeds(
 }
 
 function buildNavButtons(msgId: string, hasMember: boolean, current: string, hasMutualServers = false): ActionRowBuilder<ButtonBuilder>[] {
-  // Row 1 — core OSINT pages (always shown)
-  const cats1 = [
-    { id: "home",        label: "Overview",    emoji: "🏠" },
-    { id: "identity",    label: "Identity",    emoji: "🪪" },
-    { id: "connections", label: "Connections", emoji: "🔗" },
-    { id: "activity",    label: "Activity",    emoji: "🟢" },
-    { id: "risk",        label: "Risk",        emoji: "🔍" },
-  ];
-  // Row 2 — supplementary (always + conditional)
-  const cats2 = [
-    { id: "appearance", label: "Appearance", emoji: "🖼️" },
-    { id: "badges",     label: "Badges",     emoji: "🏅" },
-    { id: "technical",  label: "Technical",  emoji: "🔬" },
-    ...(hasMutualServers ? [{ id: "servers", label: "Servers", emoji: "🌐" }] : []),
-    ...(hasMember        ? [{ id: "server",  label: "Server",  emoji: "🏠" }] : []),
-  ];
-  // Row 3 — server admin (member only)
-  const cats3 = hasMember
-    ? [
-        { id: "permissions", label: "Permissions", emoji: "🔑" },
-        { id: "roles",       label: "Roles",       emoji: "🎭" },
-      ]
-    : [];
+  // 3 buttons per row maximum → displays cleanly on mobile without wrapping
 
-  function makeBtn(cat: { id: string; label: string; emoji: string }) {
+  function makeBtn(id: string, label: string, emoji: string) {
     return new ButtonBuilder()
-      .setCustomId(`user_cat_${msgId}_${cat.id}`)
-      .setLabel(cat.label)
-      .setEmoji(cat.emoji)
-      .setStyle(current === cat.id ? ButtonStyle.Primary : ButtonStyle.Secondary);
+      .setCustomId(`user_cat_${msgId}_${id}`)
+      .setLabel(label)
+      .setEmoji(emoji)
+      .setStyle(current === id ? ButtonStyle.Primary : ButtonStyle.Secondary);
+  }
+  function row(...btns: ButtonBuilder[]) {
+    return new ActionRowBuilder<ButtonBuilder>().addComponents(btns);
   }
 
   const rows: ActionRowBuilder<ButtonBuilder>[] = [
-    new ActionRowBuilder<ButtonBuilder>().addComponents(cats1.map(makeBtn)),
-    new ActionRowBuilder<ButtonBuilder>().addComponents(cats2.map(makeBtn)),
+    // Row 1 — core identity / OSINT
+    row(
+      makeBtn("home",        "Overview",  "🏠"),
+      makeBtn("identity",    "Identity",  "🪪"),
+      makeBtn("connections", "Links",     "🔗"),
+    ),
+    // Row 2 — live data
+    row(
+      makeBtn("activity", "Activity", "🟢"),
+      makeBtn("risk",     "Risk",     "🔍"),
+      makeBtn("badges",   "Badges",   "🏅"),
+    ),
+    // Row 3 — appearance + optional server-wide data
+    row(
+      makeBtn("appearance", "Avatar",  "🖼️"),
+      makeBtn("technical",  "Tech",    "🔬"),
+      ...(hasMutualServers ? [makeBtn("servers", "Servers", "🌐")] : []),
+    ),
   ];
-  if (cats3.length > 0) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(cats3.map(makeBtn)));
+
+  // Row 4 — member-only pages
+  if (hasMember) {
+    rows.push(row(
+      makeBtn("server",      "Server",  "🏠"),
+      makeBtn("permissions", "Perms",   "🔑"),
+      makeBtn("roles",       "Roles",   "🎭"),
+    ));
+  }
+
   return rows;
 }
 
