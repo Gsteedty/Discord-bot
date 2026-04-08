@@ -889,6 +889,153 @@ async function buildUserEmbeds(
       );
   }
 
+  // ── PRESENCE ──
+  const presence = member?.presence ?? null;
+  const statusLabels: Record<string, string> = {
+    online: "🟢 Online",
+    idle: "🌙 Idle",
+    dnd: "⛔ Do Not Disturb",
+    offline: "⚫ Offline / Invisible",
+    invisible: "⚫ Invisible",
+  };
+  const activityTypeLabels: Record<number, string> = { 0: "🎮 Playing", 1: "📡 Streaming", 2: "🎵 Listening", 3: "📺 Watching", 4: "💬 Custom Status", 5: "🏆 Competing" };
+
+  const presenceFields: { name: string; value: string; inline: boolean }[] = [];
+
+  presenceFields.push({
+    name: "📶 Status",
+    value: presence ? (statusLabels[presence.status] ?? presence.status) : "⚫ Unknown (not cached)",
+    inline: true,
+  });
+
+  if (presence?.clientStatus) {
+    const cs = presence.clientStatus as Record<string, string>;
+    const clients = Object.entries(cs).map(([platform, status]) => `**${platform.charAt(0).toUpperCase() + platform.slice(1)}:** ${statusLabels[status] ?? status}`);
+    presenceFields.push({ name: "📱 Active Clients", value: clients.length > 0 ? clients.join("\n") : "None detected", inline: true });
+  } else {
+    presenceFields.push({ name: "📱 Active Clients", value: "Not available", inline: true });
+  }
+
+  const activities = presence?.activities ?? [];
+  const customStatus = activities.find(a => a.type === 4);
+  const otherActivities = activities.filter(a => a.type !== 4);
+
+  presenceFields.push({
+    name: "💬 Custom Status",
+    value: customStatus
+      ? [customStatus.emoji ? `${customStatus.emoji.toString()} ` : "", customStatus.state ?? "*(no text)*"].join("")
+      : "None",
+    inline: false,
+  });
+
+  if (otherActivities.length > 0) {
+    for (const act of otherActivities.slice(0, 3)) {
+      const typeLabel = activityTypeLabels[act.type] ?? `Type ${act.type}`;
+      const lines: string[] = [`**${typeLabel}:** ${act.name}`];
+      if (act.details) lines.push(`**Details:** ${act.details}`);
+      if (act.state) lines.push(`**State:** ${act.state}`);
+      if (act.type === 1 && (act as any).url) lines.push(`**Stream URL:** [link](${(act as any).url})`);
+      if (act.type === 2) {
+        const sp = act as any;
+        if (sp.syncId) lines.push(`**Track:** [${act.details ?? "Unknown"}](https://open.spotify.com/track/${sp.syncId})`);
+        if (sp.state) lines.push(`**Artist:** ${sp.state}`);
+        if (sp.assets?.largeText) lines.push(`**Album:** ${sp.assets.largeText}`);
+      }
+      const timestamps = act.timestamps;
+      if (timestamps?.start) {
+        const startUnix = Math.floor(timestamps.start.getTime() / 1000);
+        lines.push(`**Started:** <t:${startUnix}:R>`);
+      }
+      presenceFields.push({ name: `${typeLabel}: ${act.name}`, value: lines.join("\n"), inline: false });
+    }
+  } else {
+    presenceFields.push({ name: "🎮 Activities", value: "None", inline: false });
+  }
+
+  embeds.presence = base("🟢 Presence & Activity")
+    .setThumbnail(avatarUrl)
+    .addFields(...presenceFields);
+  if (!member) {
+    embeds.presence.setDescription("⚠️ This user is not in this server — presence data is unavailable.");
+  }
+
+  // ── RISK ANALYSIS ──
+  const now = Date.now();
+  const ageMs = now - createdAt.getTime();
+  const ageDays = Math.floor(ageMs / 86400000);
+
+  let riskScore = 0;
+  const riskFactors: string[] = [];
+  const safeFactors: string[] = [];
+
+  // Account age
+  if (ageDays < 7) { riskScore += 4; riskFactors.push("🔴 Account created **less than 7 days ago** — very new account"); }
+  else if (ageDays < 30) { riskScore += 3; riskFactors.push("🟠 Account created **less than 30 days ago** — recent account"); }
+  else if (ageDays < 90) { riskScore += 1; riskFactors.push("🟡 Account is less than 90 days old"); }
+  else { safeFactors.push(`✅ Account is **${ageDays.toLocaleString()} days old** — established account`); }
+
+  // Avatar
+  if (!avatarHash) { riskScore += 1; riskFactors.push("🟡 No custom avatar set"); }
+  else { safeFactors.push("✅ Has a custom avatar"); }
+
+  // Badges
+  if (badges.length === 0) { riskScore += 1; riskFactors.push("🟡 No Discord badges"); }
+  else { safeFactors.push(`✅ Has ${badges.length} badge${badges.length !== 1 ? "s" : ""}`); }
+
+  // Bot
+  if (user.bot) { riskScore += 0; riskFactors.push("ℹ️ This is a **Bot** account"); }
+
+  // System
+  if (user.system) riskFactors.push("ℹ️ This is a **Discord System** account");
+
+  // Member-specific checks
+  if (member) {
+    if (member.pending) { riskScore += 1; riskFactors.push("🟡 Hasn't completed membership screening yet"); }
+    if (member.joinedAt) {
+      const joinDays = Math.floor((now - member.joinedAt.getTime()) / 86400000);
+      if (joinDays < 1) { riskScore += 3; riskFactors.push("🔴 Joined this server **today**"); }
+      else if (joinDays < 7) { riskScore += 2; riskFactors.push(`🟠 Joined this server only **${joinDays} day${joinDays !== 1 ? "s" : ""} ago**`); }
+      else { safeFactors.push(`✅ Has been in server for **${joinDays} days**`); }
+    }
+    if (member.communicationDisabledUntil && member.communicationDisabledUntil > new Date()) {
+      riskScore += 2; riskFactors.push("🟠 Currently **timed out** in this server");
+    }
+    const dangerPerms = ["Administrator", "BanMembers", "KickMembers", "ManageGuild", "ManageMessages", "ManageRoles", "MentionEveryone"];
+    const hasDanger = dangerPerms.filter(p => member.permissions.has(PermissionsBitField.Flags[p as keyof typeof PermissionsBitField.Flags]));
+    if (hasDanger.length > 0) riskFactors.push(`⚠️ Has elevated permissions: ${hasDanger.join(", ")}`);
+  }
+
+  // Mutual servers
+  if (mutualGuilds.size === 0) { riskScore += 1; riskFactors.push("🟡 No mutual servers visible to this bot"); }
+  else { safeFactors.push(`✅ Shares ${mutualGuilds.size} server${mutualGuilds.size !== 1 ? "s" : ""} with this bot`); }
+
+  const riskLabel =
+    riskScore >= 7 ? "🔴 **CRITICAL**" :
+    riskScore >= 5 ? "🟠 **HIGH**" :
+    riskScore >= 3 ? "🟡 **MODERATE**" :
+    riskScore >= 1 ? "🟢 **LOW**" :
+    "✅ **MINIMAL**";
+
+  embeds.risk = base("🔍 Risk Analysis")
+    .setThumbnail(avatarUrl)
+    .addFields(
+      { name: "⚠️ Risk Level", value: `${riskLabel} (score: ${riskScore})`, inline: false },
+      { name: `🚩 Risk Factors (${riskFactors.length})`, value: riskFactors.length > 0 ? riskFactors.join("\n") : "None found", inline: false },
+      { name: `✅ Safe Indicators (${safeFactors.length})`, value: safeFactors.length > 0 ? safeFactors.join("\n") : "None found", inline: false },
+      { name: "📋 Summary", value: `Account is **${ageDays.toLocaleString()} days old**, ${badges.length} badge${badges.length !== 1 ? "s" : ""}, ${avatarHash ? "has" : "no"} avatar, ${member ? `in server for ${Math.floor((now - (member.joinedAt?.getTime() ?? now)) / 86400000)} days` : "not in this server"}.`, inline: false },
+    );
+
+  // ── NETWORK (enhanced with external lookup links) ──
+  embeds.network.addFields({
+    name: "🔎 External Lookup Tools",
+    value: [
+      `[discordlookup.com](https://discordlookup.com/user/${user.id})`,
+      `[lookup.guru](https://lookup.guru/${user.id})`,
+      `[Discord Profile](https://discord.com/users/${user.id})`,
+    ].join("  ·  "),
+    inline: false,
+  });
+
   return embeds;
 }
 
@@ -902,6 +1049,7 @@ function buildNavButtons(msgId: string, hasMember: boolean, current: string): Ac
   ];
   const cats2 = [
     { id: "network", label: "Network", emoji: "🌐" },
+    { id: "risk", label: "Risk", emoji: "🔍" },
     ...(hasMember
       ? [
           { id: "server", label: "Server", emoji: "🏠" },
@@ -910,6 +1058,9 @@ function buildNavButtons(msgId: string, hasMember: boolean, current: string): Ac
         ]
       : []),
   ];
+  const cats3 = hasMember
+    ? [{ id: "presence", label: "Presence", emoji: "🟢" }]
+    : [];
 
   function makeBtn(cat: { id: string; label: string; emoji: string }) {
     return new ButtonBuilder()
@@ -919,12 +1070,11 @@ function buildNavButtons(msgId: string, hasMember: boolean, current: string): Ac
       .setStyle(current === cat.id ? ButtonStyle.Primary : ButtonStyle.Secondary);
   }
 
-  const rows = [
+  const rows: ActionRowBuilder<ButtonBuilder>[] = [
     new ActionRowBuilder<ButtonBuilder>().addComponents(cats1.map(makeBtn)),
   ];
-  if (cats2.length > 0) {
-    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(cats2.map(makeBtn)));
-  }
+  if (cats2.length > 0) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(cats2.map(makeBtn)));
+  if (cats3.length > 0) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(cats3.map(makeBtn)));
   return rows;
 }
 
@@ -937,6 +1087,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildVoiceStates,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
   ],
   partials: [Partials.Message, Partials.Channel],
 });
