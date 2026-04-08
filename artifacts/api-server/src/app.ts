@@ -34,7 +34,7 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/api", router);
 
-app.get("/logs/:id", (req: Request, res: Response) => {
+const serveLog = (req: Request, res: Response): void => {
   const html = getDmLog(req.params.id);
   if (!html) {
     res.status(404).send("<html><body style='background:#313338;color:#dcddde;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0'><div style='text-align:center'><h2>Log not found</h2><p style='color:#949ba4;margin-top:8px'>This link may have expired (logs are kept for 24 hours).</p></div></body></html>");
@@ -42,6 +42,9 @@ app.get("/logs/:id", (req: Request, res: Response) => {
   }
   res.setHeader("Content-Type", "text/html; charset=utf-8");
   res.send(html);
-});
+};
+
+app.get("/logs/:id", serveLog);
+app.get("/api/logs/:id", serveLog);
 
 export default app;
