@@ -408,6 +408,7 @@ async function handleRoleCommand(args: string[], message: Message): Promise<void
 interface UserEmbedSession {
   embeds: Record<string, EmbedBuilder>;
   hasMember: boolean;
+  hasMutualServers: boolean;
   current: string;
 }
 const userEmbedCache = new Map<string, UserEmbedSession>();
@@ -1105,6 +1106,105 @@ async function buildUserEmbeds(
       { name: "📋 Summary", value: `Account is **${ageDays.toLocaleString()} days old**, ${badges.length} badge${badges.length !== 1 ? "s" : ""}, ${avatarHash ? "has" : "no"} avatar, ${member ? `in server for ${Math.floor((now - (member.joinedAt?.getTime() ?? now)) / 86400000)} days` : "not in this server"}.`, inline: false },
     );
 
+  // ── TIMELINE ──
+  const createdYear  = createdAt.getUTCFullYear();
+  const createdMonth = createdAt.toLocaleDateString("en-US", { month: "long",   timeZone: "UTC" });
+  const createdDay   = createdAt.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+  const createdHour  = createdAt.getUTCHours();
+  const createdMin   = createdAt.getUTCMinutes().toString().padStart(2, "0");
+  const timeStr      = `${String(createdHour).padStart(2, "0")}:${createdMin} UTC`;
+
+  const discordEra =
+    createdYear < 2016 ? "🏛️ Founding Era (2015) — among Discord's very first users" :
+    createdYear < 2018 ? "🌱 Early Growth Era (2016–2017) — before Discord went mainstream" :
+    createdYear < 2020 ? "📈 Mainstream Era (2018–2019) — rapid user growth period" :
+    createdYear < 2022 ? "🦠 COVID Era (2020–2021) — pandemic-driven growth explosion" :
+    createdYear < 2023 ? "💼 Transition Era (2022) — Nitro changes & username overhaul begins" :
+    createdYear < 2024 ? "🆔 New Username Era (2023) — post discriminator migration" :
+    "🔵 Current Era (2024–present)";
+
+  const tzGuess =
+    createdHour >= 2  && createdHour < 8  ? "🌎 Americas — account likely created in daytime (UTC-3 to UTC-8)" :
+    createdHour >= 8  && createdHour < 14 ? "🌍 Europe / Africa — account likely created in daytime (UTC-1 to UTC+3)" :
+    createdHour >= 14 && createdHour < 22 ? "🌏 Asia / Pacific — account likely created in daytime (UTC+5 to UTC+12)" :
+    "🌐 Uncertain — created at late night / early morning across most time zones";
+
+  // Username pattern analysis
+  const uname = user.username;
+  const uDigits   = (uname.match(/\d/g) ?? []).length;
+  const uLen      = uname.length;
+  const uHasUnd   = uname.includes("_");
+  const uHasDot   = uname.includes(".");
+  const uAllNum   = /^\d+$/.test(uname);
+  const uAllAlpha = /^[a-zA-Z]+$/.test(uname);
+  const uMixed    = /[A-Z]/.test(uname) && /[a-z]/.test(uname);
+
+  const unameFlags: string[] = [
+    `📏 Length: **${uLen}** characters`,
+    uDigits > 0 ? `🔢 Contains **${uDigits}** digit${uDigits !== 1 ? "s" : ""}` : "🔡 No digits",
+    uAllNum ? "⚠️ Entirely numeric — common bot/compromised pattern" :
+      uDigits / uLen > 0.5 ? "⚠️ Majority digits — worth noting" : null,
+    uHasUnd ? "➕ Contains underscore(s)" : null,
+    uHasDot ? "➕ Contains dot(s)" : null,
+    uAllAlpha ? "🔤 Alphabetical only" : null,
+    uMixed ? "Aa Mixed case" : "🔡 All lowercase / uppercase",
+    uLen <= 3 ? "📌 Very short (≤3 chars)" : uLen >= 25 ? "📌 Very long (≥25 chars)" : null,
+  ].filter(Boolean) as string[];
+
+  // Days alive on platform
+  const totalDaysOnPlatform = Math.floor((Date.now() - createdAt.getTime()) / 86400000);
+  const yearsOnPlatform     = (totalDaysOnPlatform / 365).toFixed(1);
+
+  embeds.timeline = base("📅 Account Timeline")
+    .setThumbnail(avatarUrl)
+    .addFields(
+      { name: "🗓️ Created On",        value: `${createdDay}, ${createdMonth} ${createdAt.getUTCDate()}, ${createdYear} at ${timeStr}`, inline: false },
+      { name: "⏳ Platform Age",       value: `**${yearsOnPlatform} years** (${totalDaysOnPlatform.toLocaleString()} days)`, inline: true },
+      { name: "📆 Days Remaining",     value: `Until next account birthday: **${365 - (totalDaysOnPlatform % 365)} days**`, inline: true },
+      { name: "🏷️ Discord Era",        value: discordEra, inline: false },
+      { name: "🌐 Timezone Inference", value: tzGuess, inline: false },
+      { name: "🔤 Username Analysis",  value: unameFlags.join("\n"), inline: false },
+      { name: "📌 Username System",    value: isNewSystem ? "New system (no discriminator — migrated 2023)" : `Legacy system — discriminator \`#${user.discriminator}\``, inline: false },
+      { name: "🧮 Raw Snowflake",      value: `\`${user.id}\` → created <t:${unixTs}:F>`, inline: false },
+    );
+
+  // ── SERVERS (per-mutual-server deep dive) ──
+  if (mutualGuilds.size > 0) {
+    const serverDetails = await Promise.all(
+      [...mutualGuilds.values()].slice(0, 8).map(async (g) => {
+        const m = await g.members.fetch({ user: user.id, force: false }).catch(() => null);
+        return { guild: g, m };
+      }),
+    );
+
+    const serverFields: { name: string; value: string; inline: boolean }[] = [];
+    for (const { guild, m } of serverDetails) {
+      if (!m) continue;
+      const jUnix = m.joinedAt ? Math.floor(m.joinedAt.getTime() / 1000) : null;
+      const topRoles = [...m.roles.cache.values()]
+        .filter(r => r.id !== guild.id)
+        .sort((a, b) => b.position - a.position)
+        .slice(0, 4)
+        .map(r => `\`${r.name}\``);
+      const boostStr = m.premiumSince
+        ? `🚀 Boosting since <t:${Math.floor(m.premiumSince.getTime() / 1000)}:D>`
+        : "";
+      const lines = [
+        m.nickname ? `👤 Nick: **${m.nickname}**` : "👤 No nickname",
+        jUnix ? `📥 Joined: <t:${jUnix}:D> (<t:${jUnix}:R>)` : "📥 Join date unknown",
+        topRoles.length > 0 ? `🎭 Roles: ${topRoles.join(" ")}${m.roles.cache.size - 1 > 4 ? ` +${m.roles.cache.size - 5} more` : ""}` : "🎭 No roles",
+        boostStr,
+        m.pending ? "⏳ Pending membership screening" : "",
+      ].filter(Boolean).join("\n");
+      serverFields.push({ name: `**${guild.name}** \`${guild.id}\``, value: lines, inline: false });
+    }
+
+    embeds.servers = base(`🌐 Mutual Servers (${mutualGuilds.size})`)
+      .setThumbnail(avatarUrl)
+      .setDescription(`Showing **${serverFields.length}** of **${mutualGuilds.size}** mutual server${mutualGuilds.size !== 1 ? "s" : ""} this bot shares with **${user.username}**.`)
+      .addFields(...serverFields.slice(0, 8));
+  }
+
   // ── NETWORK (enhanced with external lookup links) ──
   embeds.network.addFields({
     name: "🔎 External Lookup Tools",
@@ -1119,27 +1219,30 @@ async function buildUserEmbeds(
   return embeds;
 }
 
-function buildNavButtons(msgId: string, hasMember: boolean, current: string): ActionRowBuilder<ButtonBuilder>[] {
+function buildNavButtons(msgId: string, hasMember: boolean, current: string, hasMutualServers = false): ActionRowBuilder<ButtonBuilder>[] {
+  // Row 1 — always shown
   const cats1 = [
-    { id: "home", label: "Overview", emoji: "🏠" },
-    { id: "identity", label: "Identity", emoji: "🪪" },
+    { id: "home",       label: "Overview",   emoji: "🏠" },
+    { id: "identity",   label: "Identity",   emoji: "🪪" },
     { id: "appearance", label: "Appearance", emoji: "🖼️" },
-    { id: "badges", label: "Badges", emoji: "🏅" },
-    { id: "technical", label: "Technical", emoji: "🔬" },
+    { id: "badges",     label: "Badges",     emoji: "🏅" },
+    { id: "technical",  label: "Technical",  emoji: "🔬" },
   ];
+  // Row 2 — always shown + conditional extras
   const cats2 = [
-    { id: "network", label: "Network", emoji: "🌐" },
-    { id: "risk", label: "Risk", emoji: "🔍" },
-    ...(hasMember
-      ? [
-          { id: "server", label: "Server", emoji: "🏠" },
-          { id: "permissions", label: "Permissions", emoji: "🔑" },
-          { id: "roles", label: "Roles", emoji: "🎭" },
-        ]
-      : []),
+    { id: "network",  label: "Network",  emoji: "🌐" },
+    { id: "timeline", label: "Timeline", emoji: "📅" },
+    { id: "risk",     label: "Risk",     emoji: "🔍" },
+    ...(hasMutualServers ? [{ id: "servers",  label: "Servers",  emoji: "🌐" }] : []),
+    ...(hasMember        ? [{ id: "presence", label: "Presence", emoji: "🟢" }] : []),
   ];
+  // Row 3 — server-specific (only if member)
   const cats3 = hasMember
-    ? [{ id: "presence", label: "Presence", emoji: "🟢" }]
+    ? [
+        { id: "server",      label: "Server",      emoji: "🏠" },
+        { id: "permissions", label: "Permissions", emoji: "🔑" },
+        { id: "roles",       label: "Roles",       emoji: "🎭" },
+      ]
     : [];
 
   function makeBtn(cat: { id: string; label: string; emoji: string }) {
@@ -1152,8 +1255,8 @@ function buildNavButtons(msgId: string, hasMember: boolean, current: string): Ac
 
   const rows: ActionRowBuilder<ButtonBuilder>[] = [
     new ActionRowBuilder<ButtonBuilder>().addComponents(cats1.map(makeBtn)),
+    new ActionRowBuilder<ButtonBuilder>().addComponents(cats2.map(makeBtn)),
   ];
-  if (cats2.length > 0) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(cats2.map(makeBtn)));
   if (cats3.length > 0) rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(cats3.map(makeBtn)));
   return rows;
 }
@@ -2054,9 +2157,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const hasMember = !!member;
         const reply = await slash.editReply({ embeds: [embeds.home] });
         const msgId = reply.id;
-        userEmbedCache.set(msgId, { embeds, hasMember, current: "home" });
+        const hasMutualServers = "servers" in embeds;
+        userEmbedCache.set(msgId, { embeds, hasMember, hasMutualServers, current: "home" });
         scheduleCleanup(msgId);
-        await slash.editReply({ embeds: [embeds.home], components: buildNavButtons(msgId, hasMember, "home") });
+        await slash.editReply({ embeds: [embeds.home], components: buildNavButtons(msgId, hasMember, "home", hasMutualServers) });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         if (errMsg.includes("Unknown User") || errMsg.includes("10013")) {
@@ -2732,7 +2836,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const embed = session.embeds[category];
     if (!embed) { await btn.reply({ content: "Category not found.", ephemeral: true }); return; }
     session.current = category;
-    await btn.update({ embeds: [embed], components: buildNavButtons(msgId, session.hasMember, category) });
+    await btn.update({ embeds: [embed], components: buildNavButtons(msgId, session.hasMember, category, session.hasMutualServers) });
     return;
   }
 
@@ -3400,9 +3504,10 @@ client.on(Events.MessageCreate, async (message: Message) => {
       // Send the overview first, then cache with message ID, then add buttons
       await fetchMsg.edit({ content: null, embeds: [embeds.home] });
       const msgId = fetchMsg.id;
-      userEmbedCache.set(msgId, { embeds, hasMember, current: "home" });
+      const hasMutualServers = "servers" in embeds;
+      userEmbedCache.set(msgId, { embeds, hasMember, hasMutualServers, current: "home" });
       scheduleCleanup(msgId);
-      await fetchMsg.edit({ embeds: [embeds.home], components: buildNavButtons(msgId, hasMember, "home") });
+      await fetchMsg.edit({ embeds: [embeds.home], components: buildNavButtons(msgId, hasMember, "home", hasMutualServers) });
     } catch (err) {
       logger.error({ err }, "Failed to fetch user info");
       const errMsg = err instanceof Error ? err.message : String(err);
