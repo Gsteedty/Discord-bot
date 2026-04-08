@@ -58,7 +58,7 @@ const DISCORD_EPOCH = 1420070400000n;
 const BASE_URL = (
   process.env.RENDER_EXTERNAL_URL ||
   process.env.PUBLIC_URL ||
-  (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "") ||
+  (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}/api` : "") ||
   `http://localhost:${process.env.PORT ?? 8080}`
 ).replace(/\/$/, "");
 
