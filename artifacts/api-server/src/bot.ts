@@ -125,6 +125,27 @@ function meterBar(pct: number, width = 12): string {
   return "█".repeat(filled) + "░".repeat(width - filled);
 }
 
+async function resolveMentions(text: string, guild: import("discord.js").Guild | null): Promise<string> {
+  // Already-formatted mentions (<@id>, <@!id>) pass through untouched.
+  // @word patterns are resolved against guild members (username or display name).
+  if (!guild || !text.includes("@")) return text;
+  const matches = [...new Set(text.match(/@([^\s<>@#&!]{1,32})/g) ?? [])];
+  if (!matches.length) return text;
+  try { await guild.members.fetch(); } catch { /* best effort */ }
+  let out = text;
+  for (const raw of matches) {
+    const query = raw.slice(1).toLowerCase();
+    const member =
+      guild.members.cache.find(m =>
+        m.user.username.toLowerCase() === query ||
+        (m.user.globalName ?? "").toLowerCase() === query ||
+        m.displayName.toLowerCase() === query,
+      );
+    if (member) out = out.replaceAll(raw, `<@${member.user.id}>`);
+  }
+  return out;
+}
+
 function decodeSnowflake(id: string) {
   const sf = BigInt(id);
   const timestamp = Number((sf >> 22n) + DISCORD_EPOCH);
@@ -2435,7 +2456,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (slash.commandName === "spam") {
       if (slash.guild && !canUse("spam")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
       const count = slash.options.getInteger("count", true);
-      const spamText = slash.options.getString("message", true);
+      const rawSpamText = slash.options.getString("message", true);
+      const spamText = await resolveMentions(rawSpamText, slash.guild ?? null);
       const channelOpt = slash.options.getChannel("channel");
       const targetChannel = (channelOpt ? await client.channels.fetch(channelOpt.id).catch(() => null) : slash.channel) as TextChannel | null;
       if (!targetChannel || !("send" in targetChannel)) { await slash.reply({ content: "Could not find that channel or it doesn't support messages.", ephemeral: true }); return; }
@@ -3939,7 +3961,7 @@ client.on(Events.MessageCreate, async (message: Message) => {
         return;
       }
     }
-    const spamText = spamArgs.join(" ");
+    const spamText = await resolveMentions(spamArgs.join(" "), message.guild ?? null);
     await message.delete().catch(() => {});
     try {
       for (let i = 0; i < count; i++) {
