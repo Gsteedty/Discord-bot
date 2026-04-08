@@ -563,6 +563,46 @@ async function sendViaWebhook(channel: TextChannel, displayName: string, avatarU
   for (let i = 0; i < count; i++) await webhook.send({ content: text, username: displayName, avatarURL: avatarUrl });
 }
 
+// ─── OSINT Platform Maps ───────────────────────────────────────────────────────
+
+const PLATFORM_ICONS: Record<string, string> = {
+  github:          "🐙",
+  twitch:          "💜",
+  twitter:         "🐦",
+  youtube:         "🔴",
+  steam:           "🎮",
+  reddit:          "🟠",
+  spotify:         "🎵",
+  facebook:        "🔵",
+  xbox:            "🟩",
+  playstation:     "💙",
+  battlenet:       "⚔️",
+  instagram:       "📸",
+  tiktok:          "⬛",
+  domain:          "🌐",
+  epicgames:       "🎮",
+  leagueoflegends: "🗡️",
+  roblox:          "🔴",
+  crunchyroll:     "🟠",
+  skype:           "🔷",
+};
+
+function getPlatformLink(type: string, name: string, id?: string): string | null {
+  switch (type) {
+    case "github":        return `https://github.com/${name}`;
+    case "twitch":        return `https://twitch.tv/${name}`;
+    case "twitter":       return `https://twitter.com/${name}`;
+    case "youtube":       return id ? `https://youtube.com/channel/${id}` : null;
+    case "steam":         return id ? `https://steamcommunity.com/profiles/${id}` : null;
+    case "reddit":        return `https://reddit.com/u/${name}`;
+    case "spotify":       return id ? `https://open.spotify.com/user/${id}` : null;
+    case "instagram":     return `https://instagram.com/${name}`;
+    case "tiktok":        return `https://tiktok.com/@${name}`;
+    case "roblox":        return id ? `https://roblox.com/users/${id}/profile` : null;
+    default:              return null;
+  }
+}
+
 async function buildUserEmbeds(
   user: User,
   member: GuildMember | null,
@@ -585,6 +625,69 @@ async function buildUserEmbeds(
   const badges = flags.map((f) => USER_FLAG_LABELS[f] ?? f).filter(Boolean);
   const isNewSystem = user.discriminator === "0";
   const mutualGuilds = client.guilds.cache.filter((g) => g.members.cache.has(user.id));
+
+  // ── Discord Profile API (bio · pronouns · connected accounts · premium) ──────
+  let discordProfile: any = null;
+  if (mutualGuilds.size > 0) {
+    try {
+      discordProfile = await (client.rest as any).get(
+        `/users/${user.id}/profile?with_mutual_guilds=false&with_mutual_friends_count=false`,
+      );
+    } catch { /* no mutual server or endpoint unavailable */ }
+  }
+  const profileBio      = (discordProfile?.user_profile?.bio      ?? "").trim() || null;
+  const profilePronouns = (discordProfile?.user_profile?.pronouns ?? "").trim() || null;
+  const connectedAccounts: Array<{ type: string; name: string; id?: string; verified?: boolean }> =
+    discordProfile?.connected_accounts ?? [];
+  const profilePremiumType: number = discordProfile?.premium_type ?? 0;
+  const premiumLabel =
+    profilePremiumType === 1 ? "💎 Nitro Classic"
+    : profilePremiumType === 2 ? "💎 Nitro"
+    : profilePremiumType === 3 ? "💎 Nitro Basic"
+    : "None";
+
+  // ── Era / timezone (used in Identity) ────────────────────────────────────────
+  const createdYear = createdAt.getUTCFullYear();
+  const createdHour = createdAt.getUTCHours();
+  const discordEra =
+    createdYear < 2016 ? "🏛️ Founding Era (2015) — among Discord's first ever users" :
+    createdYear < 2018 ? "🌱 Early Growth (2016–17) — pre-mainstream Discord" :
+    createdYear < 2020 ? "📈 Mainstream Era (2018–19) — rapid growth period" :
+    createdYear < 2022 ? "🦠 COVID Era (2020–21) — pandemic explosion" :
+    createdYear < 2023 ? "💼 Transition Era (2022) — Nitro/username overhaul begins" :
+    createdYear < 2024 ? "🆔 New Username Era (2023) — post discriminator migration" :
+    "🔵 Current Era (2024–present)";
+  const tzGuess =
+    createdHour >= 2  && createdHour < 8  ? "🌎 Likely Americas (UTC-3 to UTC-8)" :
+    createdHour >= 8  && createdHour < 14 ? "🌍 Likely Europe / Africa (UTC-1 to UTC+3)" :
+    createdHour >= 14 && createdHour < 22 ? "🌏 Likely Asia / Pacific (UTC+5 to UTC+12)" :
+    "🌐 Unclear (late night / early morning across most zones)";
+
+  // ── Username analysis ─────────────────────────────────────────────────────────
+  const uname   = user.username;
+  const uDigits = (uname.match(/\d/g) ?? []).length;
+  const uLen    = uname.length;
+  const uAllNum = /^\d+$/.test(uname);
+
+  // ── Cross-server voice state ──────────────────────────────────────────────────
+  let crossVoice: {
+    guildName: string; channelName: string;
+    muted: boolean; deafened: boolean; streaming: boolean; camera: boolean;
+  } | null = null;
+  for (const [, g] of mutualGuilds) {
+    const vs = g.voiceStates.cache.get(user.id);
+    if (vs?.channelId) {
+      crossVoice = {
+        guildName:   g.name,
+        channelName: vs.channel?.name ?? vs.channelId,
+        muted:       vs.selfMute   ?? false,
+        deafened:    vs.selfDeaf   ?? false,
+        streaming:   vs.streaming  ?? false,
+        camera:      vs.selfVideo  ?? false,
+      };
+      break;
+    }
+  }
 
   // Try to get avatar decoration
   const decorationUrl = (user as any).avatarDecorationURL?.() ?? null;
@@ -618,33 +721,107 @@ async function buildUserEmbeds(
   if (bannerUrl) embeds.home.setImage(bannerUrl);
 
   // ── IDENTITY ──
-  embeds.identity = base("🪪 Identity & Account")
-    .setThumbnail(avatarUrl)
-    .addFields(
-      { name: "User ID", value: `\`${user.id}\``, inline: true },
-      { name: "Username", value: `\`${user.username}\``, inline: true },
-      { name: "Display Name", value: user.globalName ?? "None", inline: true },
-      { name: "Account Type", value: user.system ? "⚙️ System" : user.bot ? "🤖 Bot" : "👤 Human", inline: true },
-      { name: "Username System", value: isNewSystem ? "New (no discriminator)" : `Legacy (#${user.discriminator})`, inline: true },
-      { name: "Bot?", value: user.bot ? "Yes" : "No", inline: true },
-      { name: "System?", value: user.system ? "Yes" : "No", inline: true },
-      { name: "Created", value: `<t:${unixTs}:F>\n<t:${unixTs}:R>`, inline: true },
-      { name: "Unix Timestamp", value: `\`${unixTs}\``, inline: true },
-      { name: "Account Age", value: formatAge(createdAt), inline: true },
-      { name: "Days Old", value: `${Math.floor((Date.now() - createdAt.getTime()) / 86400000).toLocaleString()} days`, inline: true },
-      {
-        name: "💎 Nitro Indicators",
-        value: [
-          avatarAnimated ? "✅ Animated avatar → **Active Nitro**" : null,
-          bannerHash ? "✅ Profile banner → **Has/had Nitro**" : null,
-          member?.premiumSince ? `✅ Server booster → **Nitro required**` : null,
-          !avatarAnimated && !bannerHash && !member?.premiumSince ? "No indicators detected" : null,
-        ].filter(Boolean).join("\n") || "No indicators detected",
+  const totalDays = Math.floor((Date.now() - createdAt.getTime()) / 86400000);
+  const identityFields: { name: string; value: string; inline: boolean }[] = [
+    { name: "🆔 User ID",         value: `\`${user.id}\``, inline: true },
+    { name: "🔖 Username",        value: `\`${user.username}\``, inline: true },
+    { name: "🏷️ Display Name",    value: user.globalName ?? "None", inline: true },
+    { name: "📛 Account Type",    value: user.system ? "⚙️ System" : user.bot ? "🤖 Bot" : "👤 Human", inline: true },
+    { name: "🆔 Username System", value: isNewSystem ? "New (no discriminator)" : `Legacy (#${user.discriminator})`, inline: true },
+    { name: "🤖 Bot?",            value: user.bot ? "Yes" : "No", inline: true },
+  ];
+  if (profilePronouns) identityFields.push({ name: "🏳️ Pronouns", value: profilePronouns, inline: true });
+  if (profileBio) identityFields.push({ name: "📝 Bio", value: profileBio.length > 300 ? profileBio.slice(0, 300) + "…" : profileBio, inline: false });
+  identityFields.push(
+    { name: "📅 Created",         value: `<t:${unixTs}:F> (<t:${unixTs}:R>)`, inline: false },
+    { name: "⏳ Age",             value: `${formatAge(createdAt)} · ${totalDays.toLocaleString()} days old`, inline: true },
+    { name: "🏛️ Discord Era",     value: discordEra, inline: false },
+    { name: "🌐 Timezone Guess",  value: tzGuess, inline: false },
+    {
+      name: "🔤 Username Signals",
+      value: [
+        `📏 **${uLen}** chars`,
+        uDigits > 0 ? `🔢 ${uDigits} digit${uDigits !== 1 ? "s" : ""}` : "🔡 No digits",
+        uAllNum ? "⚠️ **All numeric** — possible bot/compromised" : uDigits / uLen > 0.5 ? "⚠️ Majority digits" : null,
+        uname.includes("_") ? "Contains underscore" : null,
+        uname.includes(".") ? "Contains dot" : null,
+        uLen <= 3 ? "📌 Very short" : uLen >= 25 ? "📌 Very long" : null,
+      ].filter(Boolean).join(" · "),
+      inline: false,
+    },
+    {
+      name: "💎 Nitro",
+      value: premiumLabel !== "None"
+        ? `${premiumLabel} (confirmed via profile API)`
+        : [
+            avatarAnimated   ? "✅ Animated avatar → likely active" : null,
+            bannerHash       ? "✅ Profile banner → has/had Nitro"  : null,
+            member?.premiumSince ? "✅ Server booster → Nitro required" : null,
+            !avatarAnimated && !bannerHash && !member?.premiumSince ? "No indicators" : null,
+          ].filter(Boolean).join("\n") || "No indicators",
+      inline: false,
+    },
+    { name: "🔗 Profile",         value: `[discord.com/users/${user.id}](https://discord.com/users/${user.id})`, inline: true },
+    { name: "📱 Mobile Deep Link", value: `\`discord://-/users/${user.id}\``, inline: true },
+  );
+  embeds.identity = base("🪪 Identity").setThumbnail(avatarUrl).addFields(...identityFields);
+
+  // ── CONNECTIONS ──
+  {
+    const connFields: { name: string; value: string; inline: boolean }[] = [];
+
+    // Bio / pronouns if not already shown in identity (always show on connections too for OSINT)
+    if (profileBio) {
+      connFields.push({ name: "📝 Profile Bio", value: profileBio, inline: false });
+    }
+    if (profilePronouns) {
+      connFields.push({ name: "🏳️ Pronouns", value: profilePronouns, inline: true });
+    }
+
+    if (connectedAccounts.length > 0) {
+      connFields.push({ name: `\u200b`, value: `**${connectedAccounts.length} linked account${connectedAccounts.length !== 1 ? "s" : ""} found:**`, inline: false });
+      for (const acc of connectedAccounts) {
+        const icon  = PLATFORM_ICONS[acc.type] ?? "🔗";
+        const link  = getPlatformLink(acc.type, acc.name, acc.id);
+        const verBadge = acc.verified ? "✅ Verified" : "⚠️ Unverified";
+        const nameStr  = link ? `[${acc.name}](${link})` : `\`${acc.name}\``;
+        connFields.push({
+          name:   `${icon} ${acc.type.charAt(0).toUpperCase() + acc.type.slice(1)}`,
+          value:  `${nameStr}\n${verBadge}${acc.id ? `\nID: \`${acc.id}\`` : ""}`,
+          inline: true,
+        });
+      }
+    } else {
+      connFields.push({
+        name:  "🔗 Linked Accounts",
+        value: mutualGuilds.size === 0
+          ? "⚠️ No mutual servers — profile data requires sharing at least one server"
+          : "No public connected accounts found",
         inline: false,
-      },
-      { name: "🔗 Profile URL", value: `[discord.com/users/${user.id}](https://discord.com/users/${user.id})`, inline: false },
-      { name: "📱 Mobile Link", value: `\`discord://-/users/${user.id}\``, inline: false },
-    );
+      });
+    }
+
+    connFields.push({
+      name:  "🔎 External Lookup",
+      value: [
+        `[discordlookup.com](https://discordlookup.com/user/${user.id})`,
+        `[lookup.guru](https://lookup.guru/${user.id})`,
+        `[Discord Profile](https://discord.com/users/${user.id})`,
+      ].join(" · "),
+      inline: false,
+    });
+
+    embeds.connections = base("🔗 Connections & Profile Data")
+      .setThumbnail(avatarUrl)
+      .setDescription(
+        connectedAccounts.length > 0
+          ? `**${user.username}** has **${connectedAccounts.length}** public linked account${connectedAccounts.length !== 1 ? "s" : ""}. These are real-world identifiers.`
+          : mutualGuilds.size === 0
+            ? "No mutual servers with this user — profile API requires sharing a server."
+            : "This user has no public connected accounts on their Discord profile.",
+      )
+      .addFields(...connFields);
+  }
 
   // ── APPEARANCE ──
   const avatarFormats = avatarHash
@@ -918,13 +1095,13 @@ async function buildUserEmbeds(
       );
   }
 
-  // ── PRESENCE ──
-  // Guild presences cache is populated by GuildPresences intent at GUILD_CREATE;
-  // force-fetching a member bypasses the member cache but NOT the presences cache,
-  // so resolve from there first, then fall back to member.presence.
-  const presence = member
-    ? (member.guild.presences.resolve(user.id) ?? member.presence)
-    : null;
+  // ── PRESENCE (check all mutual guilds for best data) ────────────────────────
+  let presence: typeof member.presence | null = null;
+  for (const [, g] of mutualGuilds) {
+    const p = g.presences.cache.get(user.id);
+    if (p) { presence = p; break; }
+  }
+  if (!presence && member) presence = member.presence ?? null;
 
   const statusLabels: Record<string, string> = {
     online: "🟢 Online",
@@ -1033,11 +1210,31 @@ async function buildUserEmbeds(
     presenceFields.push({ name: "🎮 Activities", value: "None currently", inline: false });
   }
 
-  embeds.presence = base("🟢 Presence & Activity")
+  // Inject cross-server voice at top of activity fields
+  const activityFields: typeof presenceFields = [];
+  if (crossVoice) {
+    activityFields.push({
+      name: "🎙️ Currently In Voice",
+      value: [
+        `**Server:** ${crossVoice.guildName}`,
+        `**Channel:** ${crossVoice.channelName}`,
+        `🔇 Self Muted: ${crossVoice.muted ? "Yes" : "No"}`,
+        `🔕 Self Deafened: ${crossVoice.deafened ? "Yes" : "No"}`,
+        `📡 Streaming: ${crossVoice.streaming ? "Yes" : "No"}`,
+        `📷 Camera: ${crossVoice.camera ? "Yes" : "No"}`,
+      ].join("\n"),
+      inline: false,
+    });
+  } else {
+    activityFields.push({ name: "🎙️ Voice", value: "Not in any voice channel", inline: true });
+  }
+  activityFields.push(...presenceFields);
+
+  embeds.activity = base("🟢 Activity & Status")
     .setThumbnail(avatarUrl)
-    .addFields(...presenceFields);
-  if (!member) {
-    embeds.presence.setDescription("⚠️ This user is not in this server — presence data is unavailable.");
+    .addFields(...activityFields);
+  if (mutualGuilds.size === 0) {
+    embeds.activity.setDescription("⚠️ No mutual servers — presence and voice data require sharing at least one server.");
   }
 
   // ── RISK ANALYSIS ──
@@ -1090,6 +1287,27 @@ async function buildUserEmbeds(
   if (mutualGuilds.size === 0) { riskScore += 1; riskFactors.push("🟡 No mutual servers visible to this bot"); }
   else { safeFactors.push(`✅ Shares ${mutualGuilds.size} server${mutualGuilds.size !== 1 ? "s" : ""} with this bot`); }
 
+  // Connected accounts (profile API)
+  if (mutualGuilds.size > 0) {
+    if (connectedAccounts.length === 0) {
+      riskScore += 1;
+      riskFactors.push("🟡 No public connected accounts — no verifiable real-world identity");
+    } else if (connectedAccounts.length >= 3) {
+      safeFactors.push(`✅ ${connectedAccounts.length} connected accounts — established online identity`);
+    } else {
+      safeFactors.push(`✅ ${connectedAccounts.length} connected account${connectedAccounts.length !== 1 ? "s" : ""}`);
+    }
+  }
+  // No profile bio
+  if (mutualGuilds.size > 0 && !profileBio) {
+    riskFactors.push("🟡 No profile bio — minimal account personalisation");
+  } else if (profileBio) {
+    safeFactors.push("✅ Profile bio set");
+  }
+  // Username is all digits
+  if (uAllNum) { riskScore += 2; riskFactors.push("🔴 Username is **entirely numeric** — strong bot/compromised account indicator"); }
+  else if (uDigits / uLen > 0.5) { riskScore += 1; riskFactors.push("🟡 Username is majority digits"); }
+
   const riskLabel =
     riskScore >= 7 ? "🔴 **CRITICAL**" :
     riskScore >= 5 ? "🟠 **HIGH**" :
@@ -1104,68 +1322,6 @@ async function buildUserEmbeds(
       { name: `🚩 Risk Factors (${riskFactors.length})`, value: riskFactors.length > 0 ? riskFactors.join("\n") : "None found", inline: false },
       { name: `✅ Safe Indicators (${safeFactors.length})`, value: safeFactors.length > 0 ? safeFactors.join("\n") : "None found", inline: false },
       { name: "📋 Summary", value: `Account is **${ageDays.toLocaleString()} days old**, ${badges.length} badge${badges.length !== 1 ? "s" : ""}, ${avatarHash ? "has" : "no"} avatar, ${member ? `in server for ${Math.floor((now - (member.joinedAt?.getTime() ?? now)) / 86400000)} days` : "not in this server"}.`, inline: false },
-    );
-
-  // ── TIMELINE ──
-  const createdYear  = createdAt.getUTCFullYear();
-  const createdMonth = createdAt.toLocaleDateString("en-US", { month: "long",   timeZone: "UTC" });
-  const createdDay   = createdAt.toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
-  const createdHour  = createdAt.getUTCHours();
-  const createdMin   = createdAt.getUTCMinutes().toString().padStart(2, "0");
-  const timeStr      = `${String(createdHour).padStart(2, "0")}:${createdMin} UTC`;
-
-  const discordEra =
-    createdYear < 2016 ? "🏛️ Founding Era (2015) — among Discord's very first users" :
-    createdYear < 2018 ? "🌱 Early Growth Era (2016–2017) — before Discord went mainstream" :
-    createdYear < 2020 ? "📈 Mainstream Era (2018–2019) — rapid user growth period" :
-    createdYear < 2022 ? "🦠 COVID Era (2020–2021) — pandemic-driven growth explosion" :
-    createdYear < 2023 ? "💼 Transition Era (2022) — Nitro changes & username overhaul begins" :
-    createdYear < 2024 ? "🆔 New Username Era (2023) — post discriminator migration" :
-    "🔵 Current Era (2024–present)";
-
-  const tzGuess =
-    createdHour >= 2  && createdHour < 8  ? "🌎 Americas — account likely created in daytime (UTC-3 to UTC-8)" :
-    createdHour >= 8  && createdHour < 14 ? "🌍 Europe / Africa — account likely created in daytime (UTC-1 to UTC+3)" :
-    createdHour >= 14 && createdHour < 22 ? "🌏 Asia / Pacific — account likely created in daytime (UTC+5 to UTC+12)" :
-    "🌐 Uncertain — created at late night / early morning across most time zones";
-
-  // Username pattern analysis
-  const uname = user.username;
-  const uDigits   = (uname.match(/\d/g) ?? []).length;
-  const uLen      = uname.length;
-  const uHasUnd   = uname.includes("_");
-  const uHasDot   = uname.includes(".");
-  const uAllNum   = /^\d+$/.test(uname);
-  const uAllAlpha = /^[a-zA-Z]+$/.test(uname);
-  const uMixed    = /[A-Z]/.test(uname) && /[a-z]/.test(uname);
-
-  const unameFlags: string[] = [
-    `📏 Length: **${uLen}** characters`,
-    uDigits > 0 ? `🔢 Contains **${uDigits}** digit${uDigits !== 1 ? "s" : ""}` : "🔡 No digits",
-    uAllNum ? "⚠️ Entirely numeric — common bot/compromised pattern" :
-      uDigits / uLen > 0.5 ? "⚠️ Majority digits — worth noting" : null,
-    uHasUnd ? "➕ Contains underscore(s)" : null,
-    uHasDot ? "➕ Contains dot(s)" : null,
-    uAllAlpha ? "🔤 Alphabetical only" : null,
-    uMixed ? "Aa Mixed case" : "🔡 All lowercase / uppercase",
-    uLen <= 3 ? "📌 Very short (≤3 chars)" : uLen >= 25 ? "📌 Very long (≥25 chars)" : null,
-  ].filter(Boolean) as string[];
-
-  // Days alive on platform
-  const totalDaysOnPlatform = Math.floor((Date.now() - createdAt.getTime()) / 86400000);
-  const yearsOnPlatform     = (totalDaysOnPlatform / 365).toFixed(1);
-
-  embeds.timeline = base("📅 Account Timeline")
-    .setThumbnail(avatarUrl)
-    .addFields(
-      { name: "🗓️ Created On",        value: `${createdDay}, ${createdMonth} ${createdAt.getUTCDate()}, ${createdYear} at ${timeStr}`, inline: false },
-      { name: "⏳ Platform Age",       value: `**${yearsOnPlatform} years** (${totalDaysOnPlatform.toLocaleString()} days)`, inline: true },
-      { name: "📆 Days Remaining",     value: `Until next account birthday: **${365 - (totalDaysOnPlatform % 365)} days**`, inline: true },
-      { name: "🏷️ Discord Era",        value: discordEra, inline: false },
-      { name: "🌐 Timezone Inference", value: tzGuess, inline: false },
-      { name: "🔤 Username Analysis",  value: unameFlags.join("\n"), inline: false },
-      { name: "📌 Username System",    value: isNewSystem ? "New system (no discriminator — migrated 2023)" : `Legacy system — discriminator \`#${user.discriminator}\``, inline: false },
-      { name: "🧮 Raw Snowflake",      value: `\`${user.id}\` → created <t:${unixTs}:F>`, inline: false },
     );
 
   // ── SERVERS (per-mutual-server deep dive) ──
@@ -1205,41 +1361,29 @@ async function buildUserEmbeds(
       .addFields(...serverFields.slice(0, 8));
   }
 
-  // ── NETWORK (enhanced with external lookup links) ──
-  embeds.network.addFields({
-    name: "🔎 External Lookup Tools",
-    value: [
-      `[discordlookup.com](https://discordlookup.com/user/${user.id})`,
-      `[lookup.guru](https://lookup.guru/${user.id})`,
-      `[Discord Profile](https://discord.com/users/${user.id})`,
-    ].join("  ·  "),
-    inline: false,
-  });
-
   return embeds;
 }
 
 function buildNavButtons(msgId: string, hasMember: boolean, current: string, hasMutualServers = false): ActionRowBuilder<ButtonBuilder>[] {
-  // Row 1 — always shown
+  // Row 1 — core OSINT pages (always shown)
   const cats1 = [
-    { id: "home",       label: "Overview",   emoji: "🏠" },
-    { id: "identity",   label: "Identity",   emoji: "🪪" },
+    { id: "home",        label: "Overview",    emoji: "🏠" },
+    { id: "identity",    label: "Identity",    emoji: "🪪" },
+    { id: "connections", label: "Connections", emoji: "🔗" },
+    { id: "activity",    label: "Activity",    emoji: "🟢" },
+    { id: "risk",        label: "Risk",        emoji: "🔍" },
+  ];
+  // Row 2 — supplementary (always + conditional)
+  const cats2 = [
     { id: "appearance", label: "Appearance", emoji: "🖼️" },
     { id: "badges",     label: "Badges",     emoji: "🏅" },
     { id: "technical",  label: "Technical",  emoji: "🔬" },
+    ...(hasMutualServers ? [{ id: "servers", label: "Servers", emoji: "🌐" }] : []),
+    ...(hasMember        ? [{ id: "server",  label: "Server",  emoji: "🏠" }] : []),
   ];
-  // Row 2 — always shown + conditional extras
-  const cats2 = [
-    { id: "network",  label: "Network",  emoji: "🌐" },
-    { id: "timeline", label: "Timeline", emoji: "📅" },
-    { id: "risk",     label: "Risk",     emoji: "🔍" },
-    ...(hasMutualServers ? [{ id: "servers",  label: "Servers",  emoji: "🌐" }] : []),
-    ...(hasMember        ? [{ id: "presence", label: "Presence", emoji: "🟢" }] : []),
-  ];
-  // Row 3 — server-specific (only if member)
+  // Row 3 — server admin (member only)
   const cats3 = hasMember
     ? [
-        { id: "server",      label: "Server",      emoji: "🏠" },
         { id: "permissions", label: "Permissions", emoji: "🔑" },
         { id: "roles",       label: "Roles",       emoji: "🎭" },
       ]
