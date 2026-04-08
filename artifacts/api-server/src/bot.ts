@@ -32,6 +32,7 @@ import {
   ModalSubmitInteraction,
   ComponentType,
   AttachmentBuilder,
+  ActivityType,
 } from "discord.js";
 import Groq from "groq-sdk";
 import { logger } from "./lib/logger";
@@ -630,7 +631,18 @@ async function buildUserEmbeds(
       { name: "Unix Timestamp", value: `\`${unixTs}\``, inline: true },
       { name: "Account Age", value: formatAge(createdAt), inline: true },
       { name: "Days Old", value: `${Math.floor((Date.now() - createdAt.getTime()) / 86400000).toLocaleString()} days`, inline: true },
-      { name: "Profile URL", value: `[discord.com/users/${user.id}](https://discord.com/users/${user.id})`, inline: false },
+      {
+        name: "💎 Nitro Indicators",
+        value: [
+          avatarAnimated ? "✅ Animated avatar → **Active Nitro**" : null,
+          bannerHash ? "✅ Profile banner → **Has/had Nitro**" : null,
+          member?.premiumSince ? `✅ Server booster → **Nitro required**` : null,
+          !avatarAnimated && !bannerHash && !member?.premiumSince ? "No indicators detected" : null,
+        ].filter(Boolean).join("\n") || "No indicators detected",
+        inline: false,
+      },
+      { name: "🔗 Profile URL", value: `[discord.com/users/${user.id}](https://discord.com/users/${user.id})`, inline: false },
+      { name: "📱 Mobile Link", value: `\`discord://-/users/${user.id}\``, inline: false },
     );
 
   // ── APPEARANCE ──
@@ -811,6 +823,22 @@ async function buildUserEmbeds(
         { name: "📥 Joined Server", value: joinUnix ? `<t:${joinUnix}:F>\n<t:${joinUnix}:R>` : "Unknown", inline: true },
         { name: "📅 Join Age", value: joinedAt ? formatAge(joinedAt) : "Unknown", inline: true },
         {
+          name: "📊 Join Position",
+          value: (() => {
+            if (!joinedAt) return "Unknown";
+            const cachedMembers = member.guild.members.cache;
+            const joinedBefore = cachedMembers.filter(m => m.joinedAt && m.joinedAt < joinedAt!).size;
+            const total = cachedMembers.size;
+            return `#${(joinedBefore + 1).toLocaleString()} of ${total.toLocaleString()} cached members`;
+          })(),
+          inline: true,
+        },
+        {
+          name: "🔄 Rejoined?",
+          value: member.flags?.has("DidRejoin") ? "Yes — has rejoined this server before" : "No (or unknown)",
+          inline: true,
+        },
+        {
           name: "🚀 Server Boosting",
           value: boostSince
             ? `Since <t:${Math.floor(boostSince.getTime() / 1000)}:D> (<t:${Math.floor(boostSince.getTime() / 1000)}:R>)`
@@ -890,7 +918,13 @@ async function buildUserEmbeds(
   }
 
   // ── PRESENCE ──
-  const presence = member?.presence ?? null;
+  // Guild presences cache is populated by GuildPresences intent at GUILD_CREATE;
+  // force-fetching a member bypasses the member cache but NOT the presences cache,
+  // so resolve from there first, then fall back to member.presence.
+  const presence = member
+    ? (member.guild.presences.resolve(user.id) ?? member.presence)
+    : null;
+
   const statusLabels: Record<string, string> = {
     online: "🟢 Online",
     idle: "🌙 Idle",
@@ -898,58 +932,104 @@ async function buildUserEmbeds(
     offline: "⚫ Offline / Invisible",
     invisible: "⚫ Invisible",
   };
-  const activityTypeLabels: Record<number, string> = { 0: "🎮 Playing", 1: "📡 Streaming", 2: "🎵 Listening", 3: "📺 Watching", 4: "💬 Custom Status", 5: "🏆 Competing" };
+  const activityTypeLabels: Record<number, string> = {
+    [ActivityType.Playing]:    "🎮 Playing",
+    [ActivityType.Streaming]:  "📡 Streaming",
+    [ActivityType.Listening]:  "🎵 Listening to Spotify",
+    [ActivityType.Watching]:   "📺 Watching",
+    [ActivityType.Custom]:     "💬 Custom Status",
+    [ActivityType.Competing]:  "🏆 Competing in",
+  };
 
   const presenceFields: { name: string; value: string; inline: boolean }[] = [];
 
+  const currentStatus = presence ? (statusLabels[presence.status] ?? presence.status) : "⚫ Offline / Not Cached";
+  presenceFields.push({ name: "📶 Status", value: currentStatus, inline: true });
+
+  // Client platforms
+  const cs = presence?.clientStatus as Record<string, string> | undefined;
+  const clientPlatforms = cs
+    ? Object.entries(cs).map(([p, s]) => `${p === "desktop" ? "🖥️" : p === "mobile" ? "📱" : "🌐"} **${p.charAt(0).toUpperCase() + p.slice(1)}:** ${statusLabels[s] ?? s}`)
+    : [];
   presenceFields.push({
-    name: "📶 Status",
-    value: presence ? (statusLabels[presence.status] ?? presence.status) : "⚫ Unknown (not cached)",
+    name: "📱 Active Clients",
+    value: clientPlatforms.length > 0 ? clientPlatforms.join("\n") : "Not available",
     inline: true,
   });
 
-  if (presence?.clientStatus) {
-    const cs = presence.clientStatus as Record<string, string>;
-    const clients = Object.entries(cs).map(([platform, status]) => `**${platform.charAt(0).toUpperCase() + platform.slice(1)}:** ${statusLabels[status] ?? status}`);
-    presenceFields.push({ name: "📱 Active Clients", value: clients.length > 0 ? clients.join("\n") : "None detected", inline: true });
-  } else {
-    presenceFields.push({ name: "📱 Active Clients", value: "Not available", inline: true });
-  }
-
   const activities = presence?.activities ?? [];
-  const customStatus = activities.find(a => a.type === 4);
-  const otherActivities = activities.filter(a => a.type !== 4);
+  const customAct = activities.find(a => a.type === ActivityType.Custom);
+  const otherActivities = activities.filter(a => a.type !== ActivityType.Custom);
 
-  presenceFields.push({
-    name: "💬 Custom Status",
-    value: customStatus
-      ? [customStatus.emoji ? `${customStatus.emoji.toString()} ` : "", customStatus.state ?? "*(no text)*"].join("")
-      : "None",
-    inline: false,
-  });
+  // Custom status — fix emoji rendering
+  let customStatusText = "None";
+  if (customAct) {
+    const emojiStr = customAct.emoji
+      ? (customAct.emoji.id
+          ? `<${customAct.emoji.animated ? "a" : ""}:${customAct.emoji.name}:${customAct.emoji.id}>`
+          : customAct.emoji.name ?? "")
+      : "";
+    customStatusText = [emojiStr, customAct.state ?? ""].filter(Boolean).join(" ") || "*(empty)*";
+  }
+  presenceFields.push({ name: "💬 Custom Status", value: customStatusText, inline: false });
 
+  // Other activities
   if (otherActivities.length > 0) {
     for (const act of otherActivities.slice(0, 3)) {
-      const typeLabel = activityTypeLabels[act.type] ?? `Type ${act.type}`;
-      const lines: string[] = [`**${typeLabel}:** ${act.name}`];
-      if (act.details) lines.push(`**Details:** ${act.details}`);
-      if (act.state) lines.push(`**State:** ${act.state}`);
-      if (act.type === 1 && (act as any).url) lines.push(`**Stream URL:** [link](${(act as any).url})`);
-      if (act.type === 2) {
+      const typeLabel = activityTypeLabels[act.type] ?? `Activity (type ${act.type})`;
+      const lines: string[] = [];
+
+      if (act.type === ActivityType.Listening) {
+        // Spotify — richest display
         const sp = act as any;
-        if (sp.syncId) lines.push(`**Track:** [${act.details ?? "Unknown"}](https://open.spotify.com/track/${sp.syncId})`);
-        if (sp.state) lines.push(`**Artist:** ${sp.state}`);
-        if (sp.assets?.largeText) lines.push(`**Album:** ${sp.assets.largeText}`);
+        const trackId = sp.syncId as string | undefined;
+        const trackName = act.details ?? "Unknown Track";
+        const artist = act.state ?? "Unknown Artist";
+        const album = act.assets?.largeText ?? "";
+        lines.push(trackId
+          ? `**Track:** [${trackName}](https://open.spotify.com/track/${trackId})`
+          : `**Track:** ${trackName}`);
+        lines.push(`**Artist:** ${artist}`);
+        if (album) lines.push(`**Album:** ${album}`);
+        if (act.timestamps?.start) {
+          const startUnix = Math.floor(act.timestamps.start.getTime() / 1000);
+          lines.push(`**Started:** <t:${startUnix}:R>`);
+        }
+      } else if (act.type === ActivityType.Streaming) {
+        lines.push(`**Game:** ${act.name}`);
+        if (act.details) lines.push(`**Details:** ${act.details}`);
+        if (act.state) lines.push(`**State:** ${act.state}`);
+        const streamUrl = (act as any).url as string | undefined;
+        if (streamUrl) lines.push(`**Stream:** [Watch](${streamUrl})`);
+        if (act.timestamps?.start) {
+          const startUnix = Math.floor(act.timestamps.start.getTime() / 1000);
+          lines.push(`**Live since:** <t:${startUnix}:R>`);
+        }
+      } else {
+        // Playing / Watching / Competing
+        lines.push(`**${act.type === ActivityType.Competing ? "Tournament" : "Name"}:** ${act.name}`);
+        if (act.details) lines.push(`**Details:** ${act.details}`);
+        if (act.state) lines.push(`**State:** ${act.state}`);
+        if (act.timestamps?.start) {
+          const startUnix = Math.floor(act.timestamps.start.getTime() / 1000);
+          lines.push(`**Started:** <t:${startUnix}:R>`);
+        }
+        if (act.timestamps?.end) {
+          const endUnix = Math.floor(act.timestamps.end.getTime() / 1000);
+          lines.push(`**Ends:** <t:${endUnix}:R>`);
+        }
+        const largeImage = act.assets?.largeImageURL();
+        if (largeImage) lines.push(`**Art:** [View](${largeImage})`);
       }
-      const timestamps = act.timestamps;
-      if (timestamps?.start) {
-        const startUnix = Math.floor(timestamps.start.getTime() / 1000);
-        lines.push(`**Started:** <t:${startUnix}:R>`);
-      }
-      presenceFields.push({ name: `${typeLabel}: ${act.name}`, value: lines.join("\n"), inline: false });
+
+      presenceFields.push({
+        name: `${typeLabel}${act.type === ActivityType.Competing ? ` ${act.name}` : act.type === ActivityType.Listening ? "" : `: ${act.name}`}`,
+        value: lines.join("\n") || "*No additional details*",
+        inline: false,
+      });
     }
   } else {
-    presenceFields.push({ name: "🎮 Activities", value: "None", inline: false });
+    presenceFields.push({ name: "🎮 Activities", value: "None currently", inline: false });
   }
 
   embeds.presence = base("🟢 Presence & Activity")
