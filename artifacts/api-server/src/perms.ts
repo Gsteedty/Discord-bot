@@ -5,7 +5,7 @@ const DATA_PATH = path.join(process.cwd(), "perms.json");
 
 type PermsData = Record<string, Record<string, string[]>>;
 
-export const ALL_COMMANDS = ["say", "spam", "spamme", "delete", "ping", "ttt", "latency", "user", "role", "dm", "deletedm", "monitordm", "8ball", "rps", "roll", "flip", "mock", "compliment", "bully", "ragebait", "fake", "snipe", "avatar", "uwr", "balance", "addmoney", "takemoney", "givemoney", "shop", "buy", "garage"];
+export const ALL_COMMANDS = ["say", "spam", "spamme", "delete", "ping", "ttt", "latency", "user", "role", "dm", "deletedm", "monitordm", "8ball", "rps", "roll", "flip", "mock", "compliment", "bully", "ragebait", "fake", "snipe", "avatar", "uwr", "balance", "addmoney", "takemoney", "givemoney", "shop", "buy", "garage", "ship", "pp", "iq", "simp", "rate", "urban", "poll"];
 // "help", "perms", "ai" are excluded — always available or already owner-only
 
 export const COMMAND_LABELS: Record<string, string> = {
@@ -40,6 +40,13 @@ export const COMMAND_LABELS: Record<string, string> = {
   shop: "Car Shop",
   buy: "Buy Car",
   garage: "Garage",
+  ship: "Ship",
+  pp: "PP Meter",
+  iq: "IQ Meter",
+  simp: "Simp Meter",
+  rate: "Rate",
+  urban: "Urban Dictionary",
+  poll: "Poll",
 };
 
 const USER_PREFIX = "user:";
