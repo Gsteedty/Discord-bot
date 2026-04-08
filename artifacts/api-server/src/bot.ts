@@ -448,7 +448,7 @@ const HELP_CATS = [
   { id: "home",      label: "🏠 Home",         style: ButtonStyle.Secondary },
   { id: "games",     label: "🎮 Games",         style: ButtonStyle.Primary   },
   { id: "fun",       label: "🎭 Fun",           style: ButtonStyle.Primary   },
-  { id: "social",    label: "❤️ Social",        style: ButtonStyle.Primary   },
+  { id: "social",    label: "💬 Social",        style: ButtonStyle.Primary   },
   { id: "messaging", label: "📢 Messaging",     style: ButtonStyle.Primary   },
   { id: "info",      label: "🔍 Info & Tools",  style: ButtonStyle.Primary   },
   { id: "economy",   label: "💰 Economy",       style: ButtonStyle.Success   },
@@ -489,7 +489,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
       "",
       "🎮 **Games** — 8-Ball, Rock Paper Scissors, Dice Roll, Coin Flip, Tic-Tac-Toe",
       "🎭 **Fun** — Mock Text, AI Compliments, Bully, Ragebait, Fake",
-      "❤️ **Social** — Ship, PP Meter, IQ, Simp Meter, Rate, Urban Dictionary, Poll",
+      "💬 **Social** — Ship, PP Meter, IQ, Simp Meter, Rate, Urban Dictionary, Poll",
       "📢 **Messaging** — Say, Spam, Spam as Me, DM, Silent Ping",
       "🔍 **Info & Tools** — User Info, Avatar, Latency, Snipe, Delete",
       "💰 **Economy** — Balance, Give Money, Car Shop, Buy Cars, Garage",
@@ -518,7 +518,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
   );
 
   // SOCIAL
-  embeds.social = base("❤️ Social").addFields(
+  embeds.social = base("💬 Social").addFields(
     { name: "`ship @user1 @user2`",   value: "Calculate compatibility between two users — generates a ship name, visual bar, and match rating (seeded & consistent)",   inline: false },
     { name: "`pp [@user]`",           value: "Measure someone's pp size (1–20 inches). Seeded so the same person always gets the same result 🍆",                       inline: false },
     { name: "`iq [@user]`",           value: "Run an IQ test (55–180). Seeded per user — ratings range from Confidently Dumb to Galaxy Brain 🧠",                      inline: false },
