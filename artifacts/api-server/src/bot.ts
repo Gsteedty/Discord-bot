@@ -31,6 +31,7 @@ import {
   TextInputStyle,
   ModalSubmitInteraction,
   ComponentType,
+  AttachmentBuilder,
 } from "discord.js";
 import Groq from "groq-sdk";
 import { logger } from "./lib/logger";
@@ -496,6 +497,7 @@ function buildHelpEmbeds(inDM: boolean, footer: { text: string; iconURL: string 
     { name: `\`spamme <count> [#channel] <message>\``,value: "Send a message that looks like it came **from you** via webhook *(server only)*",                                                     inline: false },
     { name: `\`dm @user [count] <message>\``,         value: `Slide into someone's DMs up to **${MAX_DM_COUNT}** times *(server only)*`,          inline: false },
     { name: "`deletedm @user`",                       value: "Delete all bot messages in a DM with a user and close the conversation",                                                              inline: false },
+    { name: "`monitordm @user`",                      value: "Export the full DM conversation with a user as a downloadable log file, sent privately to you",                                         inline: false },
     { name: "`ping <username>`",                      value: "Silently ping a user — mentions them then instantly deletes the ping message *(server only)*",                                       inline: false },
   );
 
@@ -1522,6 +1524,15 @@ const SLASH_COMMANDS = [
     integration_types: [0, 1],
     contexts: [0, 1, 2],
   },
+  {
+    name: "monitordm",
+    description: "Export the full DM conversation with a user as a downloadable log file",
+    options: [
+      { name: "user", description: "Which user's DM to export", type: ApplicationCommandOptionType.User, required: true },
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
   // ── Economy ──────────────────────────────────────────────────────────────────
   {
     name: "balance",
@@ -2010,6 +2021,56 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         await dmChannel.delete().catch(() => {});
         await slash.editReply(`Deleted **${deleted}** bot message${deleted !== 1 ? "s" : ""} in the DM with **${target.username}** and closed the conversation.`);
+      } catch (e: any) {
+        await slash.editReply(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
+      }
+      return;
+    }
+
+    // /monitordm
+    if (slash.commandName === "monitordm") {
+      if (!canUse("monitordm")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user", true);
+      await slash.deferReply({ ephemeral: true });
+      try {
+        const dmChannel = await target.createDM();
+        const allMsgs: any[] = [];
+        let lastId: string | undefined;
+        while (true) {
+          let msgs: any;
+          for (let attempt = 0; attempt < 10; attempt++) {
+            try { msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) }); break; }
+            catch (fe: any) {
+              if (fe?.status === 429 || fe?.code === 429) await new Promise(r => setTimeout(r, ((fe.retryAfter ?? 2) * 1000) + 500));
+              else throw fe;
+            }
+          }
+          if (!msgs || msgs.size === 0) break;
+          msgs.forEach((m: any) => allMsgs.push(m));
+          if (msgs.size < 100) break;
+          lastId = msgs.last()?.id;
+        }
+        allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+        const lines: string[] = [
+          `=== DM Log: ${client.user!.username} ↔ ${target.username} ===`,
+          `Exported: ${new Date().toUTCString()}`,
+          `Total messages: ${allMsgs.length}`,
+          `${"─".repeat(60)}`,
+          "",
+        ];
+        for (const m of allMsgs) {
+          const ts = new Date(m.createdTimestamp).toISOString().replace("T", " ").slice(0, 19);
+          const who = m.author.id === client.user!.id ? `[BOT] ${client.user!.username}` : `[USER] ${m.author.username}`;
+          let content = m.content || "";
+          if (m.attachments.size) content += (content ? " " : "") + [...m.attachments.values()].map((a: any) => `[Attachment: ${a.name ?? a.url}]`).join(" ");
+          if (m.embeds.length) content += (content ? " " : "") + `[${m.embeds.length} embed${m.embeds.length > 1 ? "s" : ""}]`;
+          if (m.stickers.size) content += (content ? " " : "") + `[Sticker: ${[...m.stickers.values()].map((s: any) => s.name).join(", ")}]`;
+          if (!content) content = "[no text content]";
+          lines.push(`[${ts} UTC] ${who}: ${content}`);
+        }
+        const buf = Buffer.from(lines.join("\n"), "utf8");
+        const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.txt` });
+        await slash.editReply({ content: `Here's the full DM log with **${target.username}** — ${allMsgs.length} message${allMsgs.length !== 1 ? "s" : ""} total.`, files: [attachment] });
       } catch (e: any) {
         await slash.editReply(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
       }
@@ -3306,6 +3367,61 @@ client.on(Events.MessageCreate, async (message: Message) => {
       }
       await dmChannel.delete().catch(() => {});
       await status.edit(`Deleted **${deleted}** bot message${deleted !== 1 ? "s" : ""} in the DM with **${target.username}** and closed the conversation.`);
+    } catch (e: any) {
+      await status.edit(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
+    }
+    return;
+  }
+
+  if (command === "monitordm") {
+    if (!canUse("monitordm")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const userArg = args[0];
+    if (!userArg) { await message.channel.send("Usage: `-monitordm <@user>`"); return; }
+    const userId = userArg.replace(/[<@!>]/g, "");
+    const target = await client.users.fetch(userId).catch(() => null);
+    if (!target) { await message.channel.send("Couldn't find that user."); return; }
+    const status = await message.channel.send(`Fetching DM log with **${target.username}**...`);
+    try {
+      const dmChannel = await target.createDM();
+      const allMsgs: any[] = [];
+      let lastId: string | undefined;
+      while (true) {
+        let msgs: any;
+        for (let attempt = 0; attempt < 10; attempt++) {
+          try { msgs = await dmChannel.messages.fetch({ limit: 100, ...(lastId ? { before: lastId } : {}) }); break; }
+          catch (fe: any) {
+            if (fe?.status === 429 || fe?.code === 429) await new Promise(r => setTimeout(r, ((fe.retryAfter ?? 2) * 1000) + 500));
+            else throw fe;
+          }
+        }
+        if (!msgs || msgs.size === 0) break;
+        msgs.forEach((m: any) => allMsgs.push(m));
+        if (msgs.size < 100) break;
+        lastId = msgs.last()?.id;
+      }
+      allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      const lines: string[] = [
+        `=== DM Log: ${client.user!.username} ↔ ${target.username} ===`,
+        `Exported: ${new Date().toUTCString()}`,
+        `Total messages: ${allMsgs.length}`,
+        `${"─".repeat(60)}`,
+        "",
+      ];
+      for (const m of allMsgs) {
+        const ts = new Date(m.createdTimestamp).toISOString().replace("T", " ").slice(0, 19);
+        const who = m.author.id === client.user!.id ? `[BOT] ${client.user!.username}` : `[USER] ${m.author.username}`;
+        let content = m.content || "";
+        if (m.attachments.size) content += (content ? " " : "") + [...m.attachments.values()].map((a: any) => `[Attachment: ${a.name ?? a.url}]`).join(" ");
+        if (m.embeds.length) content += (content ? " " : "") + `[${m.embeds.length} embed${m.embeds.length > 1 ? "s" : ""}]`;
+        if (m.stickers.size) content += (content ? " " : "") + `[Sticker: ${[...m.stickers.values()].map((s: any) => s.name).join(", ")}]`;
+        if (!content) content = "[no text content]";
+        lines.push(`[${ts} UTC] ${who}: ${content}`);
+      }
+      const buf = Buffer.from(lines.join("\n"), "utf8");
+      const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.txt` });
+      await status.delete().catch(() => {});
+      await message.author.send({ content: `Here's the full DM log with **${target.username}** — ${allMsgs.length} message${allMsgs.length !== 1 ? "s" : ""} total.`, files: [attachment] });
+      await message.channel.send(`Done! Log sent to your DMs.`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
     } catch (e: any) {
       await status.edit(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
     }
