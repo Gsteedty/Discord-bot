@@ -2130,9 +2130,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
         allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
         const html = buildDmLogHtml(allMsgs, client.user!.username, target.username);
-        const buf = Buffer.from(html, "utf8");
-        const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.html` });
-        await slash.editReply({ content: `DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Download and open in your browser.`, files: [attachment] });
+        const logId = storeDmLog(html);
+        const logUrl = `${BASE_URL}/logs/${logId}`;
+        await slash.editReply({ content: `DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Link expires in 24h.\n${logUrl}` });
       } catch (e: any) {
         await slash.editReply(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
       }
@@ -3463,11 +3463,11 @@ client.on(Events.MessageCreate, async (message: Message) => {
       }
       allMsgs.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
       const html = buildDmLogHtml(allMsgs, client.user!.username, target.username);
-      const buf = Buffer.from(html, "utf8");
-      const attachment = new AttachmentBuilder(buf, { name: `dm-log-${target.username}-${Date.now()}.html` });
+      const logId = storeDmLog(html);
+      const logUrl = `${BASE_URL}/logs/${logId}`;
       await status.delete().catch(() => {});
-      await message.author.send({ content: `DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Download and open in your browser.`, files: [attachment] });
-      await message.channel.send(`Done! Log sent to your DMs.`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
+      await message.author.send(`DM log with **${target.username}** — **${allMsgs.length}** message${allMsgs.length !== 1 ? "s" : ""}. Link expires in 24h.\n${logUrl}`);
+      await message.channel.send(`Done! Link sent to your DMs.`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
     } catch (e: any) {
       await status.edit(`Failed: ${e?.message?.slice(0, 200) ?? "unknown error"}`);
     }
