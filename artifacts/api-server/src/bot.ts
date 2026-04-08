@@ -109,6 +109,22 @@ function formatAge(date: Date): string {
   return `${Math.floor(ms / 60000)}m`;
 }
 
+// Consistent seeded value (0–100) for same seed string
+function seededRandom(seed: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h % 101;
+}
+
+// Visual progress bar
+function meterBar(pct: number, width = 12): string {
+  const filled = Math.round((pct / 100) * width);
+  return "█".repeat(filled) + "░".repeat(width - filled);
+}
+
 function decodeSnowflake(id: string) {
   const sf = BigInt(id);
   const timestamp = Number((sf >> 22n) + DISCORD_EPOCH);
@@ -1996,6 +2012,58 @@ const SLASH_COMMANDS = [
     contexts: [0, 1, 2],
   },
   {
+    name: "ship",
+    description: "Check the compatibility between two users ❤️",
+    options: [
+      { name: "user1", description: "First user", type: ApplicationCommandOptionType.User, required: true },
+      { name: "user2", description: "Second user", type: ApplicationCommandOptionType.User, required: true },
+    ],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
+    name: "pp",
+    description: "Measure someone's pp size 🍆",
+    options: [{ name: "user", description: "Who to measure (defaults to you)", type: ApplicationCommandOptionType.User, required: false }],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
+    name: "iq",
+    description: "Check someone's IQ 🧠",
+    options: [{ name: "user", description: "Who to test (defaults to you)", type: ApplicationCommandOptionType.User, required: false }],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
+    name: "simp",
+    description: "Measure someone's simp level 🥺",
+    options: [{ name: "user", description: "Who to check (defaults to you)", type: ApplicationCommandOptionType.User, required: false }],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
+    name: "rate",
+    description: "Rate someone out of 10 with an AI comment",
+    options: [{ name: "user", description: "Who to rate (defaults to you)", type: ApplicationCommandOptionType.User, required: false }],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
+    name: "urban",
+    description: "Look up a word on Urban Dictionary 📖",
+    options: [{ name: "word", description: "Word or phrase to look up", type: ApplicationCommandOptionType.String, required: true }],
+    integration_types: [0, 1],
+    contexts: [0, 1, 2],
+  },
+  {
+    name: "poll",
+    description: "Create a yes/no poll with reactions",
+    options: [{ name: "question", description: "The poll question", type: ApplicationCommandOptionType.String, required: true }],
+    integration_types: [0, 1],
+    contexts: [0],
+  },
+  {
     name: "dm",
     description: "Send a DM to a user with a custom message",
     options: [
@@ -2854,6 +2922,145 @@ client.on(Events.InteractionCreate, async (interaction) => {
           ...(target.avatar?.startsWith("a_") ? [{ name: "GIF", value: `[Link](${target.displayAvatarURL({ size: 4096, extension: "gif" })})`, inline: true }] : []),
         );
       await slash.reply({ embeds: [embed] });
+      return;
+    }
+
+    // /ship
+    if (slash.commandName === "ship") {
+      if (!canUse("ship")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const u1 = slash.options.getUser("user1", true);
+      const u2 = slash.options.getUser("user2", true);
+      const seed = [u1.id, u2.id].sort().join("ship");
+      const pct = seededRandom(seed);
+      const bar = meterBar(pct);
+      const label = pct < 20 ? "💀 Terrible match" : pct < 40 ? "😬 Unlikely" : pct < 60 ? "🤝 Decent" : pct < 80 ? "💕 Good match" : "❤️‍🔥 Perfect match!";
+      const shipName = u1.username.slice(0, Math.ceil(u1.username.length / 2)) + u2.username.slice(Math.floor(u2.username.length / 2));
+      const embed = new EmbedBuilder()
+        .setColor(0xff69b4)
+        .setTitle(`❤️ Ship — ${u1.displayName ?? u1.username} & ${u2.displayName ?? u2.username}`)
+        .setDescription([
+          `💑 **Ship name:** \`${shipName}\``,
+          ``,
+          `${u1.displayName ?? u1.username} ❤️ ${u2.displayName ?? u2.username}`,
+          `\`${bar}\` **${pct}%**`,
+          ``,
+          label,
+        ].join("\n"))
+        .setTimestamp();
+      await slash.reply({ embeds: [embed] });
+      return;
+    }
+
+    // /pp
+    if (slash.commandName === "pp") {
+      if (!canUse("pp")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user") ?? slash.user;
+      const size = 1 + (seededRandom(target.id + "pp") % 20); // 1–20 inches
+      const shaft = "=".repeat(Math.min(size, 20));
+      const label = size <= 3 ? "💀 RIP" : size <= 6 ? "😔 Below average" : size <= 10 ? "😐 Average" : size <= 15 ? "😳 Impressive" : "💀 TOO BIG";
+      await slash.reply(`🍆 **${target.displayName ?? target.username}'s pp:**\n8${shaft}D  **${size} inches**\n${label}`);
+      return;
+    }
+
+    // /iq
+    if (slash.commandName === "iq") {
+      if (!canUse("iq")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user") ?? slash.user;
+      const iq = 55 + (seededRandom(target.id + "iq") % 126); // 55–180
+      const bar = meterBar(Math.min(((iq - 55) / 125) * 100, 100));
+      const label = iq < 70 ? "🥜 Confidently Dumb" : iq < 85 ? "😐 Below Average" : iq < 115 ? "✅ Average" : iq < 130 ? "🧠 Above Average" : iq < 145 ? "🎓 Gifted" : "⚡ Galaxy Brain";
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle(`🧠 IQ Test — ${target.displayName ?? target.username}`)
+        .setDescription(`\`${bar}\` **${iq} IQ**\n${label}`)
+        .setThumbnail(target.displayAvatarURL())
+        .setTimestamp();
+      await slash.reply({ embeds: [embed] });
+      return;
+    }
+
+    // /simp
+    if (slash.commandName === "simp") {
+      if (!canUse("simp")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user") ?? slash.user;
+      const pct = seededRandom(target.id + "simp");
+      const bar = meterBar(pct);
+      const label = pct < 20 ? "🧊 Stone cold, no feelings" : pct < 40 ? "🤏 Little bit of simp in there" : pct < 60 ? "😶 Mid simp energy" : pct < 80 ? "🥺 Certified simp" : pct < 95 ? "😭 Extreme simp, embarrassing" : "‼️ CRITICAL SIMP LEVEL — seek help";
+      const embed = new EmbedBuilder()
+        .setColor(0xff69b4)
+        .setTitle(`🥺 Simp Meter — ${target.displayName ?? target.username}`)
+        .setDescription(`\`${bar}\` **${pct}%**\n${label}`)
+        .setThumbnail(target.displayAvatarURL())
+        .setTimestamp();
+      await slash.reply({ embeds: [embed] });
+      return;
+    }
+
+    // /rate
+    if (slash.commandName === "rate") {
+      if (!canUse("rate")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const target = slash.options.getUser("user") ?? slash.user;
+      await slash.deferReply();
+      try {
+        const resp = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          max_tokens: 80,
+          messages: [
+            { role: "system", content: "You rate Discord users out of 10 in one punchy sentence. Be funny, a little harsh, brutally honest. Format: 'X/10 — [comment]'. X must be a number 1-10." },
+            { role: "user", content: `Rate this user. Username: "${target.username}", display name: "${target.globalName ?? target.username}".` },
+          ],
+        });
+        const rating = resp.choices[0]?.message?.content?.trim() ?? "5/10 — meh";
+        await slash.editReply(`⭐ **${target.displayName ?? target.username}:** ${rating}`);
+      } catch { await slash.editReply("❌ AI couldn't decide. You broke it."); }
+      return;
+    }
+
+    // /urban
+    if (slash.commandName === "urban") {
+      if (!canUse("urban")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const word = slash.options.getString("word", true);
+      await slash.deferReply();
+      try {
+        const res = await fetch(`https://api.urbandictionary.com/v0/define?term=${encodeURIComponent(word)}`);
+        const data = await res.json() as { list: Array<{ word: string; definition: string; example: string; thumbs_up: number; thumbs_down: number; author: string; written_on: string }> };
+        const entry = data.list?.[0];
+        if (!entry) { await slash.editReply(`❌ No Urban Dictionary results for **${word}**.`); return; }
+        const clean = (s: string) => s.replace(/\[|\]/g, "").slice(0, 800);
+        const embed = new EmbedBuilder()
+          .setColor(0x1d2439)
+          .setTitle(`📖 ${entry.word}`)
+          .setURL(`https://www.urbandictionary.com/define.php?term=${encodeURIComponent(word)}`)
+          .setDescription(clean(entry.definition))
+          .addFields(
+            entry.example ? { name: "📝 Example", value: `*${clean(entry.example)}*`, inline: false } : { name: "\u200b", value: "\u200b", inline: false },
+            { name: "👍", value: `${entry.thumbs_up.toLocaleString()}`, inline: true },
+            { name: "👎", value: `${entry.thumbs_down.toLocaleString()}`, inline: true },
+            { name: "✍️ By", value: entry.author, inline: true },
+          )
+          .setFooter({ text: "Urban Dictionary" })
+          .setTimestamp(new Date(entry.written_on));
+        await slash.editReply({ embeds: [embed] });
+      } catch { await slash.editReply("❌ Failed to reach Urban Dictionary."); }
+      return;
+    }
+
+    // /poll
+    if (slash.commandName === "poll") {
+      if (!slash.guild) { await slash.reply({ content: "Server only.", ephemeral: true }); return; }
+      if (!canUse("poll")) { await slash.reply({ content: "You don't have permission to use that command.", ephemeral: true }); return; }
+      const question = slash.options.getString("question", true);
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("📊 Poll")
+        .setDescription(`**${question}**`)
+        .setFooter({ text: `Poll by ${slash.user.username}` })
+        .setTimestamp();
+      await slash.deferReply({ ephemeral: true });
+      const msg = await slash.channel!.send({ embeds: [embed] });
+      await msg.react("✅");
+      await msg.react("❌");
+      await slash.editReply({ content: "✅ Poll posted!" });
       return;
     }
 
@@ -4188,6 +4395,140 @@ client.on(Events.MessageCreate, async (message: Message) => {
         ...(target.avatar?.startsWith("a_") ? [{ name: "GIF", value: `[Link](${target.displayAvatarURL({ size: 4096, extension: "gif" })})`, inline: true }] : []),
       );
     await message.channel.send({ embeds: [embed] });
+    return;
+  }
+
+  // -ship
+  if (command === "ship") {
+    if (!canUse("ship")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const mentions = [...message.mentions.users.values()];
+    if (mentions.length < 2) { await message.channel.send("❌ Mention two users: `-ship @user1 @user2`"); return; }
+    const [u1, u2] = mentions;
+    const seed = [u1.id, u2.id].sort().join("ship");
+    const pct = seededRandom(seed);
+    const bar = meterBar(pct);
+    const label = pct < 20 ? "💀 Terrible match" : pct < 40 ? "😬 Unlikely" : pct < 60 ? "🤝 Decent" : pct < 80 ? "💕 Good match" : "❤️‍🔥 Perfect match!";
+    const shipName = u1.username.slice(0, Math.ceil(u1.username.length / 2)) + u2.username.slice(Math.floor(u2.username.length / 2));
+    const embed = new EmbedBuilder()
+      .setColor(0xff69b4)
+      .setTitle(`❤️ Ship — ${u1.displayName ?? u1.username} & ${u2.displayName ?? u2.username}`)
+      .setDescription([`💑 **Ship name:** \`${shipName}\``, ``, `${u1.displayName ?? u1.username} ❤️ ${u2.displayName ?? u2.username}`, `\`${bar}\` **${pct}%**`, ``, label].join("\n"))
+      .setTimestamp();
+    await message.channel.send({ embeds: [embed] });
+    return;
+  }
+
+  // -pp
+  if (command === "pp") {
+    if (!canUse("pp")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const target = message.mentions.users.first() ?? message.author;
+    const size = 1 + (seededRandom(target.id + "pp") % 20);
+    const shaft = "=".repeat(Math.min(size, 20));
+    const label = size <= 3 ? "💀 RIP" : size <= 6 ? "😔 Below average" : size <= 10 ? "😐 Average" : size <= 15 ? "😳 Impressive" : "💀 TOO BIG";
+    await message.channel.send(`🍆 **${target.displayName ?? target.username}'s pp:**\n8${shaft}D  **${size} inches**\n${label}`);
+    return;
+  }
+
+  // -iq
+  if (command === "iq") {
+    if (!canUse("iq")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const target = message.mentions.users.first() ?? message.author;
+    const iq = 55 + (seededRandom(target.id + "iq") % 126);
+    const bar = meterBar(Math.min(((iq - 55) / 125) * 100, 100));
+    const label = iq < 70 ? "🥜 Confidently Dumb" : iq < 85 ? "😐 Below Average" : iq < 115 ? "✅ Average" : iq < 130 ? "🧠 Above Average" : iq < 145 ? "🎓 Gifted" : "⚡ Galaxy Brain";
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle(`🧠 IQ Test — ${target.displayName ?? target.username}`)
+      .setDescription(`\`${bar}\` **${iq} IQ**\n${label}`)
+      .setThumbnail(target.displayAvatarURL())
+      .setTimestamp();
+    await message.channel.send({ embeds: [embed] });
+    return;
+  }
+
+  // -simp
+  if (command === "simp") {
+    if (!canUse("simp")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const target = message.mentions.users.first() ?? message.author;
+    const pct = seededRandom(target.id + "simp");
+    const bar = meterBar(pct);
+    const label = pct < 20 ? "🧊 Stone cold, no feelings" : pct < 40 ? "🤏 Little bit of simp in there" : pct < 60 ? "😶 Mid simp energy" : pct < 80 ? "🥺 Certified simp" : pct < 95 ? "😭 Extreme simp, embarrassing" : "‼️ CRITICAL SIMP LEVEL — seek help";
+    const embed = new EmbedBuilder()
+      .setColor(0xff69b4)
+      .setTitle(`🥺 Simp Meter — ${target.displayName ?? target.username}`)
+      .setDescription(`\`${bar}\` **${pct}%**\n${label}`)
+      .setThumbnail(target.displayAvatarURL())
+      .setTimestamp();
+    await message.channel.send({ embeds: [embed] });
+    return;
+  }
+
+  // -rate
+  if (command === "rate") {
+    if (!canUse("rate")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const target = message.mentions.users.first() ?? message.author;
+    const typing = message.channel as TextChannel;
+    await typing.sendTyping?.().catch(() => {});
+    try {
+      const resp = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 80,
+        messages: [
+          { role: "system", content: "You rate Discord users out of 10 in one punchy sentence. Be funny, a little harsh, brutally honest. Format: 'X/10 — [comment]'. X must be a number 1-10." },
+          { role: "user", content: `Rate this user. Username: "${target.username}", display name: "${target.globalName ?? target.username}".` },
+        ],
+      });
+      const rating = resp.choices[0]?.message?.content?.trim() ?? "5/10 — meh";
+      await message.channel.send(`⭐ **${target.displayName ?? target.username}:** ${rating}`);
+    } catch { await message.channel.send("❌ AI couldn't decide. You broke it."); }
+    return;
+  }
+
+  // -urban
+  if (command === "urban") {
+    if (!canUse("urban")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const word = args.join(" ");
+    if (!word) { await message.channel.send("❌ Provide a word: `-urban <word>`"); return; }
+    try {
+      const res = await fetch(`https://api.urbandictionary.com/v0/define?term=${encodeURIComponent(word)}`);
+      const data = await res.json() as { list: Array<{ word: string; definition: string; example: string; thumbs_up: number; thumbs_down: number; author: string; written_on: string }> };
+      const entry = data.list?.[0];
+      if (!entry) { await message.channel.send(`❌ No Urban Dictionary results for **${word}**.`); return; }
+      const clean = (s: string) => s.replace(/\[|\]/g, "").slice(0, 800);
+      const embed = new EmbedBuilder()
+        .setColor(0x1d2439)
+        .setTitle(`📖 ${entry.word}`)
+        .setURL(`https://www.urbandictionary.com/define.php?term=${encodeURIComponent(word)}`)
+        .setDescription(clean(entry.definition))
+        .addFields(
+          entry.example ? { name: "📝 Example", value: `*${clean(entry.example)}*`, inline: false } : { name: "\u200b", value: "\u200b", inline: false },
+          { name: "👍", value: `${entry.thumbs_up.toLocaleString()}`, inline: true },
+          { name: "👎", value: `${entry.thumbs_down.toLocaleString()}`, inline: true },
+          { name: "✍️ By", value: entry.author, inline: true },
+        )
+        .setFooter({ text: "Urban Dictionary" })
+        .setTimestamp(new Date(entry.written_on));
+      await message.channel.send({ embeds: [embed] });
+    } catch { await message.channel.send("❌ Failed to reach Urban Dictionary."); }
+    return;
+  }
+
+  // -poll
+  if (command === "poll") {
+    if (!message.guild) { await message.channel.send("❌ Server only."); return; }
+    if (!canUse("poll")) { await message.channel.send("You don't have permission to use that command."); return; }
+    const question = args.join(" ");
+    if (!question) { await message.channel.send("❌ Provide a question: `-poll <question>`"); return; }
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle("📊 Poll")
+      .setDescription(`**${question}**`)
+      .setFooter({ text: `Poll by ${message.author.username}` })
+      .setTimestamp();
+    const msg = await message.channel.send({ embeds: [embed] });
+    await msg.react("✅");
+    await msg.react("❌");
+    await message.delete().catch(() => {});
     return;
   }
 
