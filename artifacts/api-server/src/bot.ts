@@ -2648,14 +2648,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await slash.deferReply({ flags: 64 });
       try {
         for (let i = 0; i < count; i++) {
-          await client.rest.post(Routes.channelMessages(targetChannelId), { body: { content: spamText } });
+          if (slash.guild) {
+            // Guild: use REST API (bot token has channel access)
+            await client.rest.post(Routes.channelMessages(targetChannelId), { body: { content: spamText } });
+          } else {
+            // DM / Group DM: use interaction followUp — uses the pre-authorized interaction webhook,
+            // which works regardless of whether the bot token has explicit channel access.
+            await slash.followUp({ content: spamText });
+          }
           if (i < count - 1) await new Promise(r => setTimeout(r, 200));
         }
       } catch (e: any) {
-        const isPerms = e?.code === 50013 || e?.code === 50001;
+        const isPerms = (e as any)?.code === 50013 || (e as any)?.code === 50001;
         await slash.editReply(isPerms
           ? `I couldn't send in that channel — missing Send Messages permission.`
-          : `Something went wrong mid-spam (${e?.message ?? "unknown error"}). Messages may have partially sent.`);
+          : `Something went wrong mid-spam (${(e as any)?.message ?? "unknown error"}). Messages may have partially sent.`);
         return;
       }
       await slash.editReply(`Done — sent ${count} message${count !== 1 ? "s" : ""} to ${channelOpt ? `<#${channelOpt.id}>` : "this channel"}.`);
@@ -4121,32 +4128,34 @@ client.on(Events.MessageCreate, async (message: Message) => {
     const count = parseInt(args[0], 10);
     if (isNaN(count) || count < 1 || count > MAX_SPAM_COUNT) { await message.channel.send(`Count must be 1–${MAX_SPAM_COUNT}.`); return; }
     let spamArgs = args.slice(1);
-    let targetSpamChannelId = message.channelId;
-    if (spamArgs[0]?.startsWith("<#") && spamArgs[0].endsWith(">")) {
-      targetSpamChannelId = spamArgs[0].replace(/[<#>]/g, "");
+    // Default target is the current channel (always sendable — comes from gateway event)
+    let targetSpamChannel: { send: (content: string) => Promise<any>; id: string } = message.channel as any;
+    if (message.guild && spamArgs[0]?.startsWith("<#") && spamArgs[0].endsWith(">")) {
+      // Channel targeting only makes sense in a guild (group DMs have no other channels to target)
+      const chanId = spamArgs[0].replace(/[<#>]/g, "");
+      const resolved = await client.channels.fetch(chanId).catch(() => null) as TextChannel | null;
+      if (!resolved || !("send" in resolved)) { await message.channel.send("Couldn't find that channel."); return; }
+      const me = message.guild.members.me;
+      const myPerms = me ? resolved.permissionsFor(me) : null;
+      if (!myPerms?.has(PermissionsBitField.Flags.SendMessages)) {
+        await message.channel.send(`I'm missing Send Messages permission in <#${chanId}>. Check the channel's permission overwrites for my role.`);
+        return;
+      }
+      targetSpamChannel = resolved;
       spamArgs = spamArgs.slice(1);
     }
     if (!spamArgs.length) { await message.channel.send("Usage: `-spam <count> [#channel] <message>`"); return; }
-    if (message.guild) {
-      const me = message.guild.members.me;
-      const ch = message.guild.channels.cache.get(targetSpamChannelId) as TextChannel | undefined;
-      const myPerms = (me && ch) ? ch.permissionsFor(me) : null;
-      if (myPerms && !myPerms.has(PermissionsBitField.Flags.SendMessages)) {
-        await message.channel.send(`I'm missing Send Messages permission in <#${targetSpamChannelId}>. Check the channel's permission overwrites for my role.`);
-        return;
-      }
-    }
     const spamText = await resolveMentions(spamArgs.join(" "), message.guild ?? null);
     await message.delete().catch(() => {});
     try {
       for (let i = 0; i < count; i++) {
-        await client.rest.post(Routes.channelMessages(targetSpamChannelId), { body: { content: spamText } });
+        await targetSpamChannel.send(spamText);
         if (i < count - 1) await new Promise(r => setTimeout(r, 200));
       }
     } catch (e: any) {
       const isPerms = e?.code === 50013 || e?.code === 50001;
       await message.channel.send(isPerms
-        ? `I couldn't send in <#${targetSpamChannelId}> — check channel permission overwrites for my role.`
+        ? `I couldn't send in <#${targetSpamChannel.id}> — check channel permission overwrites for my role.`
         : `Something went wrong mid-spam (${e?.message ?? "unknown error"}). Messages may have partially sent.`);
     }
     return;
