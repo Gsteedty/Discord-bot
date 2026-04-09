@@ -2632,28 +2632,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const rawSpamText = slash.options.getString("message", true);
       const spamText = await resolveMentions(rawSpamText, slash.guild ?? null);
       const channelOpt = slash.options.getChannel("channel");
-      // slash.channel can be null in group DMs — fall back to fetching by channelId
-      const resolvedChannel = slash.channel ?? (slash.channelId ? await client.channels.fetch(slash.channelId).catch(() => null) : null);
-      const targetChannel = (channelOpt ? await client.channels.fetch(channelOpt.id).catch(() => null) : resolvedChannel) as any;
-      if (!targetChannel || !("send" in targetChannel)) { await slash.reply({ content: "Could not find that channel or it doesn't support messages.", ephemeral: true }); return; }
+      // Use the channel ID directly — avoids issues with PartialGroupDMChannel having no .send()
+      const targetChannelId = channelOpt?.id ?? slash.channelId;
+      if (!targetChannelId) { await slash.reply({ content: "Could not resolve the target channel.", ephemeral: true }); return; }
+      // Guild-only permission check
       if (slash.guild) {
         const me = slash.guild.members.me;
-        const myPerms = me ? targetChannel.permissionsFor(me) : null;
-        if (!myPerms?.has(PermissionsBitField.Flags.SendMessages)) {
-          await slash.reply({ content: `I'm missing Send Messages permission in <#${targetChannel.id}>. Check the channel's permission overwrites.`, ephemeral: true });
+        const ch = slash.guild.channels.cache.get(targetChannelId) as TextChannel | undefined;
+        const myPerms = (me && ch) ? ch.permissionsFor(me) : null;
+        if (myPerms && !myPerms.has(PermissionsBitField.Flags.SendMessages)) {
+          await slash.reply({ content: `I'm missing Send Messages permission in <#${targetChannelId}>. Check the channel's permission overwrites.`, ephemeral: true });
           return;
         }
       }
-      await slash.deferReply({ ephemeral: true });
+      await slash.deferReply({ flags: 64 });
       try {
         for (let i = 0; i < count; i++) {
-          await targetChannel.send(spamText);
+          await client.rest.post(Routes.channelMessages(targetChannelId), { body: { content: spamText } });
           if (i < count - 1) await new Promise(r => setTimeout(r, 200));
         }
       } catch (e: any) {
         const isPerms = e?.code === 50013 || e?.code === 50001;
         await slash.editReply(isPerms
-          ? `I couldn't send in <#${targetChannel.id}> — check channel permission overwrites for my role.`
+          ? `I couldn't send in that channel — missing Send Messages permission.`
           : `Something went wrong mid-spam (${e?.message ?? "unknown error"}). Messages may have partially sent.`);
         return;
       }
@@ -4120,20 +4121,18 @@ client.on(Events.MessageCreate, async (message: Message) => {
     const count = parseInt(args[0], 10);
     if (isNaN(count) || count < 1 || count > MAX_SPAM_COUNT) { await message.channel.send(`Count must be 1–${MAX_SPAM_COUNT}.`); return; }
     let spamArgs = args.slice(1);
-    let targetSpamChannel = message.channel as any;
+    let targetSpamChannelId = message.channelId;
     if (spamArgs[0]?.startsWith("<#") && spamArgs[0].endsWith(">")) {
-      const chanId = spamArgs[0].replace(/[<#>]/g, "");
-      const resolved = await client.channels.fetch(chanId).catch(() => null) as TextChannel | null;
-      if (!resolved || !("send" in resolved)) { await message.channel.send("Couldn't find that channel."); return; }
-      targetSpamChannel = resolved;
+      targetSpamChannelId = spamArgs[0].replace(/[<#>]/g, "");
       spamArgs = spamArgs.slice(1);
     }
     if (!spamArgs.length) { await message.channel.send("Usage: `-spam <count> [#channel] <message>`"); return; }
     if (message.guild) {
       const me = message.guild.members.me;
-      const myPerms = me ? targetSpamChannel.permissionsFor(me) : null;
-      if (!myPerms?.has(PermissionsBitField.Flags.SendMessages)) {
-        await message.channel.send(`I'm missing Send Messages permission in <#${targetSpamChannel.id}>. Check the channel's permission overwrites for my role.`);
+      const ch = message.guild.channels.cache.get(targetSpamChannelId) as TextChannel | undefined;
+      const myPerms = (me && ch) ? ch.permissionsFor(me) : null;
+      if (myPerms && !myPerms.has(PermissionsBitField.Flags.SendMessages)) {
+        await message.channel.send(`I'm missing Send Messages permission in <#${targetSpamChannelId}>. Check the channel's permission overwrites for my role.`);
         return;
       }
     }
@@ -4141,13 +4140,13 @@ client.on(Events.MessageCreate, async (message: Message) => {
     await message.delete().catch(() => {});
     try {
       for (let i = 0; i < count; i++) {
-        await targetSpamChannel.send(spamText);
+        await client.rest.post(Routes.channelMessages(targetSpamChannelId), { body: { content: spamText } });
         if (i < count - 1) await new Promise(r => setTimeout(r, 200));
       }
     } catch (e: any) {
       const isPerms = e?.code === 50013 || e?.code === 50001;
       await message.channel.send(isPerms
-        ? `I couldn't send in <#${targetSpamChannel.id}> — check channel permission overwrites for my role.`
+        ? `I couldn't send in <#${targetSpamChannelId}> — check channel permission overwrites for my role.`
         : `Something went wrong mid-spam (${e?.message ?? "unknown error"}). Messages may have partially sent.`);
     }
     return;
