@@ -1646,7 +1646,7 @@ const client = new Client({
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildPresences,
   ],
-  partials: [Partials.Message, Partials.Channel],
+  partials: [Partials.Message, Partials.Channel, Partials.User],
 });
 
 // ─── Shop sessions ────────────────────────────────────────────────────────────
@@ -3963,7 +3963,13 @@ async function runAI(userText: string, userId: string, message: Message) {
 // ─── Messages ─────────────────────────────────────────────────────────────────
 
 client.on(Events.MessageCreate, async (message: Message) => {
-  if (message.author.bot) return;
+  // Partial messages (common in DMs / group DMs) have null content — fetch the full object first
+  if (message.partial) {
+    try { message = await message.fetch() as Message; }
+    catch { return; }
+  }
+  if (message.author?.bot) return;
+  if (!message.content) return;
   const ownerId = process.env.DISCORD_OWNER_ID;
 
   // AI: @mention
