@@ -146,6 +146,94 @@ async function resolveMentions(text: string, guild: import("discord.js").Guild |
   return out;
 }
 
+// ─── Username OSINT — site list ───────────────────────────────────────────────
+
+type LookupResult = { name: string; icon: string; link: string; found: boolean; unreliable: boolean };
+
+const USERNAME_SITES: ReadonlyArray<{
+  name: string; icon: string;
+  checkUrl:   (u: string) => string;
+  profileUrl: (u: string) => string;
+  notFound?:  (status: number, body: string) => boolean;
+  unreliable?: boolean;
+}> = [
+  // ── Reliable (proper 404 or deterministic body check) ──────────────────────
+  { name: "GitHub",      icon: "🐙", checkUrl: u => `https://github.com/${u}`,                                          profileUrl: u => `https://github.com/${u}` },
+  { name: "GitLab",      icon: "🦊", checkUrl: u => `https://gitlab.com/${u}`,                                          profileUrl: u => `https://gitlab.com/${u}` },
+  { name: "Reddit",      icon: "🟠", checkUrl: u => `https://www.reddit.com/user/${u}/about.json`,                      profileUrl: u => `https://reddit.com/u/${u}`,         notFound: (s) => s === 404 },
+  { name: "Replit",      icon: "🔄", checkUrl: u => `https://replit.com/@${u}`,                                         profileUrl: u => `https://replit.com/@${u}` },
+  { name: "HackerNews",  icon: "🟡", checkUrl: u => `https://hacker-news.firebaseio.com/v0/user/${u}.json`,             profileUrl: u => `https://news.ycombinator.com/user?id=${u}`, notFound: (_s, b) => b.trim() === "null" },
+  { name: "Keybase",     icon: "🔑", checkUrl: u => `https://keybase.io/${u}`,                                          profileUrl: u => `https://keybase.io/${u}` },
+  { name: "DeviantArt",  icon: "🎨", checkUrl: u => `https://www.deviantart.com/${u}`,                                  profileUrl: u => `https://deviantart.com/${u}` },
+  { name: "Steam",       icon: "🎮", checkUrl: u => `https://steamcommunity.com/id/${u}`,                               profileUrl: u => `https://steamcommunity.com/id/${u}`, notFound: (_s, b) => b.includes("The specified profile could not be found") },
+  { name: "Roblox",      icon: "🔴", checkUrl: u => `https://api.roblox.com/users/get-by-username?username=${u}`,       profileUrl: u => `https://www.roblox.com/search/users?keyword=${u}`, notFound: (_s, b) => { try { return !JSON.parse(b)?.Id; } catch { return true; } } },
+  // ── Semi-reliable ──────────────────────────────────────────────────────────
+  { name: "Twitch",      icon: "💜", checkUrl: u => `https://www.twitch.tv/${u}`,                                       profileUrl: u => `https://twitch.tv/${u}` },
+  { name: "SoundCloud",  icon: "🔊", checkUrl: u => `https://soundcloud.com/${u}`,                                      profileUrl: u => `https://soundcloud.com/${u}` },
+  { name: "Medium",      icon: "✍️", checkUrl: u => `https://medium.com/@${u}`,                                         profileUrl: u => `https://medium.com/@${u}` },
+  { name: "Patreon",     icon: "🎁", checkUrl: u => `https://www.patreon.com/${u}`,                                     profileUrl: u => `https://patreon.com/${u}` },
+  { name: "Spotify",     icon: "🎵", checkUrl: u => `https://open.spotify.com/user/${u}`,                               profileUrl: u => `https://open.spotify.com/user/${u}` },
+  // ── Unreliable (SPA / aggressive bot protection) ──────────────────────────
+  { name: "Twitter/X",  icon: "🐦",  checkUrl: u => `https://twitter.com/${u}`,                                         profileUrl: u => `https://twitter.com/${u}`,       unreliable: true },
+  { name: "Instagram",  icon: "📸",  checkUrl: u => `https://www.instagram.com/${u}/`,                                  profileUrl: u => `https://instagram.com/${u}`,     unreliable: true },
+  { name: "TikTok",     icon: "⬛",  checkUrl: u => `https://www.tiktok.com/@${u}`,                                     profileUrl: u => `https://tiktok.com/@${u}`,       unreliable: true },
+  { name: "Pinterest",  icon: "📌",  checkUrl: u => `https://www.pinterest.com/${u}/`,                                  profileUrl: u => `https://pinterest.com/${u}`,     unreliable: true },
+  { name: "Snapchat",   icon: "👻",  checkUrl: u => `https://www.snapchat.com/add/${u}`,                                profileUrl: u => `https://snapchat.com/add/${u}`,  unreliable: true },
+  { name: "Tumblr",     icon: "📷",  checkUrl: u => `https://${u}.tumblr.com`,                                          profileUrl: u => `https://${u}.tumblr.com`,        unreliable: true },
+  { name: "Cash App",   icon: "💵",  checkUrl: u => `https://cash.app/$${u}`,                                           profileUrl: u => `https://cash.app/$${u}`,         unreliable: true },
+];
+
+async function searchUsernames(username: string): Promise<LookupResult[]> {
+  const TIMEOUT_MS = 6000;
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+  async function checkSite(site: typeof USERNAME_SITES[number]): Promise<LookupResult> {
+    const ctrl = new AbortController();
+    const tid = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(site.checkUrl(username), {
+        signal: ctrl.signal,
+        headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" },
+        redirect: "follow",
+      });
+      clearTimeout(tid);
+      let found: boolean;
+      if (site.notFound) {
+        let body = "";
+        try {
+          const chunks: Uint8Array[] = [];
+          let bytes = 0;
+          const reader = res.body?.getReader();
+          if (reader) {
+            while (bytes < 16384) {
+              const { done, value } = await reader.read();
+              if (done || !value) break;
+              chunks.push(value); bytes += value.length;
+            }
+            reader.cancel();
+            const merged = new Uint8Array(chunks.reduce((t, c) => t + c.length, 0));
+            let off = 0; for (const c of chunks) { merged.set(c, off); off += c.length; }
+            body = new TextDecoder().decode(merged);
+          }
+        } catch {}
+        found = !site.notFound(res.status, body);
+      } else {
+        found = res.ok;
+      }
+      return { name: site.name, icon: site.icon, link: site.profileUrl(username), found, unreliable: !!site.unreliable };
+    } catch {
+      clearTimeout(tid);
+      return { name: site.name, icon: site.icon, link: site.profileUrl(username), found: false, unreliable: !!site.unreliable };
+    }
+  }
+
+  const settled = await Promise.allSettled(USERNAME_SITES.map(checkSite));
+  return settled.map((r, i) =>
+    r.status === "fulfilled" ? r.value
+    : { name: USERNAME_SITES[i].name, icon: USERNAME_SITES[i].icon, link: USERNAME_SITES[i].profileUrl(username), found: false, unreliable: !!USERNAME_SITES[i].unreliable }
+  );
+}
+
 function decodeSnowflake(id: string) {
   const sf = BigInt(id);
   const timestamp = Number((sf >> 22n) + DISCORD_EPOCH);
@@ -676,15 +764,21 @@ async function buildUserEmbeds(
   const isNewSystem = user.discriminator === "0";
   const mutualGuilds = client.guilds.cache.filter((g) => g.members.cache.has(user.id));
 
-  // ── Discord Profile API (bio · pronouns · connected accounts · premium) ──────
+  // ── Discord Profile API + username site search (run in parallel) ─────────────
   let discordProfile: any = null;
-  if (mutualGuilds.size > 0) {
-    try {
-      discordProfile = await (client.rest as any).get(
-        `/users/${user.id}/profile?with_mutual_guilds=false&with_mutual_friends_count=false`,
-      );
-    } catch { /* no mutual server or endpoint unavailable */ }
-  }
+  let lookupResults: LookupResult[] = [];
+  await Promise.allSettled([
+    (async () => {
+      if (mutualGuilds.size > 0) {
+        try {
+          discordProfile = await (client.rest as any).get(
+            `/users/${user.id}/profile?with_mutual_guilds=false&with_mutual_friends_count=false`,
+          );
+        } catch { /* no mutual server or endpoint unavailable */ }
+      }
+    })(),
+    (async () => { lookupResults = await searchUsernames(user.username); })(),
+  ]);
   const profileBio      = (discordProfile?.user_profile?.bio      ?? "").trim() || null;
   const profilePronouns = (discordProfile?.user_profile?.pronouns ?? "").trim() || null;
   const connectedAccounts: Array<{ type: string; name: string; id?: string; verified?: boolean }> =
@@ -1411,6 +1505,43 @@ async function buildUserEmbeds(
       .addFields(...serverFields.slice(0, 8));
   }
 
+  // ── LOOKUP ──
+  {
+    const reliable  = lookupResults.filter(r => r.found && !r.unreliable);
+    const uncertain = lookupResults.filter(r => r.found &&  r.unreliable);
+    const checkedCount = lookupResults.length;
+
+    const formatRow = (items: LookupResult[]) =>
+      items.map(r => `${r.icon} [${r.name}](${r.link})`).join("  ·  ");
+
+    const descLines: string[] = [
+      `Searched username **\`${user.username}\`** across **${checkedCount}** platforms.`,
+      "",
+    ];
+
+    if (reliable.length > 0) {
+      descLines.push(`**✅ Confirmed Found (${reliable.length})**`);
+      // chunk into rows of 4 for readability
+      for (let i = 0; i < reliable.length; i += 4)
+        descLines.push(formatRow(reliable.slice(i, i + 4)));
+    } else {
+      descLines.push("**✅ Confirmed Found (0)**");
+      descLines.push("*No confirmed accounts found under this username.*");
+    }
+
+    if (uncertain.length > 0) {
+      descLines.push("", `**⚠️ Possibly Found — verify manually (${uncertain.length})**`);
+      for (let i = 0; i < uncertain.length; i += 4)
+        descLines.push(formatRow(uncertain.slice(i, i + 4)));
+      descLines.push("", "*These sites use bot protection or client-side rendering and may show false positives.*");
+    }
+
+    embeds.lookup = base("🔎 Username Lookup")
+      .setThumbnail(avatarUrl)
+      .setDescription(descLines.join("\n").slice(0, 4000))
+      .setFooter({ text: `${footer.text} · Results are best-effort — always verify manually`, iconURL: footer.iconURL });
+  }
+
   return embeds;
 }
 
@@ -1441,10 +1572,11 @@ function buildNavButtons(msgId: string, hasMember: boolean, current: string, has
       makeBtn("risk",     "Risk",     "🔍"),
       makeBtn("badges",   "Badges",   "🏅"),
     ),
-    // Row 3 — appearance + optional server-wide data
+    // Row 3 — appearance + lookup + optional server-wide data
     row(
       makeBtn("appearance", "Avatar",  "🖼️"),
       makeBtn("technical",  "Tech",    "🔬"),
+      makeBtn("lookup",     "Lookup",  "🔎"),
       ...(hasMutualServers ? [makeBtn("servers", "Servers", "🌐")] : []),
     ),
   ];
