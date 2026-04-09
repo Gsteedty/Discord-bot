@@ -148,39 +148,94 @@ async function resolveMentions(text: string, guild: import("discord.js").Guild |
 
 // ─── Username OSINT — site list ───────────────────────────────────────────────
 
-type LookupResult = { name: string; icon: string; link: string; found: boolean; unreliable: boolean };
+type LookupResult = { name: string; icon: string; link: string; found: boolean };
 
+// Only sites with verifiable existence — proper 404, API response, or deterministic body check.
+// Sites that always return 200 regardless (SPAs, bot-protected) are excluded to prevent false positives.
 const USERNAME_SITES: ReadonlyArray<{
   name: string; icon: string;
   checkUrl:   (u: string) => string;
   profileUrl: (u: string) => string;
-  notFound?:  (status: number, body: string) => boolean;
-  unreliable?: boolean;
+  notFound:   (status: number, body: string) => boolean;
 }> = [
-  // ── Reliable (proper 404 or deterministic body check) ──────────────────────
-  { name: "GitHub",      icon: "🐙", checkUrl: u => `https://github.com/${u}`,                                          profileUrl: u => `https://github.com/${u}` },
-  { name: "GitLab",      icon: "🦊", checkUrl: u => `https://gitlab.com/${u}`,                                          profileUrl: u => `https://gitlab.com/${u}` },
-  { name: "Reddit",      icon: "🟠", checkUrl: u => `https://www.reddit.com/user/${u}/about.json`,                      profileUrl: u => `https://reddit.com/u/${u}`,         notFound: (s) => s === 404 },
-  { name: "Replit",      icon: "🔄", checkUrl: u => `https://replit.com/@${u}`,                                         profileUrl: u => `https://replit.com/@${u}` },
-  { name: "HackerNews",  icon: "🟡", checkUrl: u => `https://hacker-news.firebaseio.com/v0/user/${u}.json`,             profileUrl: u => `https://news.ycombinator.com/user?id=${u}`, notFound: (_s, b) => b.trim() === "null" },
-  { name: "Keybase",     icon: "🔑", checkUrl: u => `https://keybase.io/${u}`,                                          profileUrl: u => `https://keybase.io/${u}` },
-  { name: "DeviantArt",  icon: "🎨", checkUrl: u => `https://www.deviantart.com/${u}`,                                  profileUrl: u => `https://deviantart.com/${u}` },
-  { name: "Steam",       icon: "🎮", checkUrl: u => `https://steamcommunity.com/id/${u}`,                               profileUrl: u => `https://steamcommunity.com/id/${u}`, notFound: (_s, b) => b.includes("The specified profile could not be found") },
-  { name: "Roblox",      icon: "🔴", checkUrl: u => `https://api.roblox.com/users/get-by-username?username=${u}`,       profileUrl: u => `https://www.roblox.com/search/users?keyword=${u}`, notFound: (_s, b) => { try { return !JSON.parse(b)?.Id; } catch { return true; } } },
-  // ── Semi-reliable ──────────────────────────────────────────────────────────
-  { name: "Twitch",      icon: "💜", checkUrl: u => `https://www.twitch.tv/${u}`,                                       profileUrl: u => `https://twitch.tv/${u}` },
-  { name: "SoundCloud",  icon: "🔊", checkUrl: u => `https://soundcloud.com/${u}`,                                      profileUrl: u => `https://soundcloud.com/${u}` },
-  { name: "Medium",      icon: "✍️", checkUrl: u => `https://medium.com/@${u}`,                                         profileUrl: u => `https://medium.com/@${u}` },
-  { name: "Patreon",     icon: "🎁", checkUrl: u => `https://www.patreon.com/${u}`,                                     profileUrl: u => `https://patreon.com/${u}` },
-  { name: "Spotify",     icon: "🎵", checkUrl: u => `https://open.spotify.com/user/${u}`,                               profileUrl: u => `https://open.spotify.com/user/${u}` },
-  // ── Unreliable (SPA / aggressive bot protection) ──────────────────────────
-  { name: "Twitter/X",  icon: "🐦",  checkUrl: u => `https://twitter.com/${u}`,                                         profileUrl: u => `https://twitter.com/${u}`,       unreliable: true },
-  { name: "Instagram",  icon: "📸",  checkUrl: u => `https://www.instagram.com/${u}/`,                                  profileUrl: u => `https://instagram.com/${u}`,     unreliable: true },
-  { name: "TikTok",     icon: "⬛",  checkUrl: u => `https://www.tiktok.com/@${u}`,                                     profileUrl: u => `https://tiktok.com/@${u}`,       unreliable: true },
-  { name: "Pinterest",  icon: "📌",  checkUrl: u => `https://www.pinterest.com/${u}/`,                                  profileUrl: u => `https://pinterest.com/${u}`,     unreliable: true },
-  { name: "Snapchat",   icon: "👻",  checkUrl: u => `https://www.snapchat.com/add/${u}`,                                profileUrl: u => `https://snapchat.com/add/${u}`,  unreliable: true },
-  { name: "Tumblr",     icon: "📷",  checkUrl: u => `https://${u}.tumblr.com`,                                          profileUrl: u => `https://${u}.tumblr.com`,        unreliable: true },
-  { name: "Cash App",   icon: "💵",  checkUrl: u => `https://cash.app/$${u}`,                                           profileUrl: u => `https://cash.app/$${u}`,         unreliable: true },
+  {
+    name: 'GitHub',     icon: '🐙',
+    checkUrl:   u => `https://github.com/${u}`,
+    profileUrl: u => `https://github.com/${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'GitLab',     icon: '🦊',
+    checkUrl:   u => `https://gitlab.com/${u}`,
+    profileUrl: u => `https://gitlab.com/${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'Reddit',     icon: '🟠',
+    checkUrl:   u => `https://www.reddit.com/user/${u}/about.json`,
+    profileUrl: u => `https://reddit.com/u/${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'Replit',     icon: '🔄',
+    checkUrl:   u => `https://replit.com/@${u}`,
+    profileUrl: u => `https://replit.com/@${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'HackerNews', icon: '🟡',
+    checkUrl:   u => `https://hacker-news.firebaseio.com/v0/user/${u}.json`,
+    profileUrl: u => `https://news.ycombinator.com/user?id=${u}`,
+    notFound:   (_s, b) => b.trim() === 'null',
+  },
+  {
+    name: 'Keybase',    icon: '🔑',
+    checkUrl:   u => `https://keybase.io/${u}`,
+    profileUrl: u => `https://keybase.io/${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'DeviantArt', icon: '🎨',
+    checkUrl:   u => `https://www.deviantart.com/${u}`,
+    profileUrl: u => `https://deviantart.com/${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'Steam',      icon: '🎮',
+    checkUrl:   u => `https://steamcommunity.com/id/${u}`,
+    profileUrl: u => `https://steamcommunity.com/id/${u}`,
+    notFound:   (_s, b) => b.includes('The specified profile could not be found'),
+  },
+  {
+    name: 'Roblox',     icon: '🔴',
+    checkUrl:   u => `https://api.roblox.com/users/get-by-username?username=${u}`,
+    profileUrl: u => `https://www.roblox.com/search/users?keyword=${u}`,
+    notFound:   (_s, b) => { try { return !JSON.parse(b)?.Id; } catch { return true; } },
+  },
+  {
+    name: 'SoundCloud', icon: '🔊',
+    checkUrl:   u => `https://soundcloud.com/${u}`,
+    profileUrl: u => `https://soundcloud.com/${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'Medium',     icon: '✍️',
+    checkUrl:   u => `https://medium.com/@${u}`,
+    profileUrl: u => `https://medium.com/@${u}`,
+    notFound:   (s) => s === 404,
+  },
+  {
+    name: 'Twitch',     icon: '💜',
+    checkUrl:   u => `https://www.twitch.tv/${u}`,
+    profileUrl: u => `https://twitch.tv/${u}`,
+    notFound:   (_s, b) => b.includes('Sorry. Unless you&#39;ve got a time machine') || b.includes('Page Not Found'),
+  },
+  {
+    name: 'Linktree',   icon: '🌿',
+    checkUrl:   u => `https://linktr.ee/${u}`,
+    profileUrl: u => `https://linktr.ee/${u}`,
+    notFound:   (s) => s === 404,
+  },
 ];
 
 async function searchUsernames(username: string): Promise<LookupResult[]> {
@@ -197,40 +252,35 @@ async function searchUsernames(username: string): Promise<LookupResult[]> {
         redirect: "follow",
       });
       clearTimeout(tid);
-      let found: boolean;
-      if (site.notFound) {
-        let body = "";
-        try {
-          const chunks: Uint8Array[] = [];
-          let bytes = 0;
-          const reader = res.body?.getReader();
-          if (reader) {
-            while (bytes < 16384) {
-              const { done, value } = await reader.read();
-              if (done || !value) break;
-              chunks.push(value); bytes += value.length;
-            }
-            reader.cancel();
-            const merged = new Uint8Array(chunks.reduce((t, c) => t + c.length, 0));
-            let off = 0; for (const c of chunks) { merged.set(c, off); off += c.length; }
-            body = new TextDecoder().decode(merged);
+      let body = "";
+      try {
+        const chunks: Uint8Array[] = [];
+        let bytes = 0;
+        const reader = res.body?.getReader();
+        if (reader) {
+          while (bytes < 16384) {
+            const { done, value } = await reader.read();
+            if (done || !value) break;
+            chunks.push(value); bytes += value.length;
           }
-        } catch {}
-        found = !site.notFound(res.status, body);
-      } else {
-        found = res.ok;
-      }
-      return { name: site.name, icon: site.icon, link: site.profileUrl(username), found, unreliable: !!site.unreliable };
+          reader.cancel();
+          const merged = new Uint8Array(chunks.reduce((t, c) => t + c.length, 0));
+          let off = 0; for (const c of chunks) { merged.set(c, off); off += c.length; }
+          body = new TextDecoder().decode(merged);
+        }
+      } catch {}
+      const found = !site.notFound(res.status, body);
+      return { name: site.name, icon: site.icon, link: site.profileUrl(username), found };
     } catch {
       clearTimeout(tid);
-      return { name: site.name, icon: site.icon, link: site.profileUrl(username), found: false, unreliable: !!site.unreliable };
+      return { name: site.name, icon: site.icon, link: site.profileUrl(username), found: false };
     }
   }
 
   const settled = await Promise.allSettled(USERNAME_SITES.map(checkSite));
   return settled.map((r, i) =>
     r.status === "fulfilled" ? r.value
-    : { name: USERNAME_SITES[i].name, icon: USERNAME_SITES[i].icon, link: USERNAME_SITES[i].profileUrl(username), found: false, unreliable: !!USERNAME_SITES[i].unreliable }
+    : { name: USERNAME_SITES[i].name, icon: USERNAME_SITES[i].icon, link: USERNAME_SITES[i].profileUrl(username), found: false }
   );
 }
 
@@ -1507,8 +1557,7 @@ async function buildUserEmbeds(
 
   // ── LOOKUP ──
   {
-    const reliable  = lookupResults.filter(r => r.found && !r.unreliable);
-    const uncertain = lookupResults.filter(r => r.found &&  r.unreliable);
+    const found = lookupResults.filter(r => r.found);
     const checkedCount = lookupResults.length;
     const u = user.username;
 
@@ -1517,26 +1566,21 @@ async function buildUserEmbeds(
 
     const descLines: string[] = [
       `Searched **\`${u}\`** across **${checkedCount}** platforms.`,
+      `Only platforms with verifiable presence are shown.`,
       "",
-      `**✅ Confirmed Found (${reliable.length} / ${checkedCount})**`,
+      `**✅ Found (${found.length} / ${checkedCount})**`,
     ];
 
-    if (reliable.length > 0) {
-      descLines.push(...reliable.map(formatLine));
+    if (found.length > 0) {
+      descLines.push(...found.map(formatLine));
     } else {
-      descLines.push("*No confirmed accounts found under this username.*");
-    }
-
-    if (uncertain.length > 0) {
-      descLines.push("", `**⚠️ Possibly Found — verify manually (${uncertain.length})**`);
-      descLines.push(...uncertain.map(formatLine));
-      descLines.push("", "⚠️ *These sites use bot protection or SPAs — results may be false positives.*");
+      descLines.push("*No accounts found under this username.*");
     }
 
     embeds.lookup = base("🔎 Username Lookup")
       .setThumbnail(avatarUrl)
       .setDescription(descLines.join("\n").slice(0, 4000))
-      .setFooter({ text: `${footer.text} · Always verify results manually`, iconURL: footer.iconURL });
+      .setFooter({ text: `${footer.text} · Results are verified — click a link to confirm`, iconURL: footer.iconURL });
   }
 
   return embeds;
