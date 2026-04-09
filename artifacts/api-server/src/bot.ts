@@ -2632,7 +2632,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const rawSpamText = slash.options.getString("message", true);
       const spamText = await resolveMentions(rawSpamText, slash.guild ?? null);
       const channelOpt = slash.options.getChannel("channel");
-      const targetChannel = (channelOpt ? await client.channels.fetch(channelOpt.id).catch(() => null) : slash.channel) as TextChannel | null;
+      // slash.channel can be null in group DMs — fall back to fetching by channelId
+      const resolvedChannel = slash.channel ?? (slash.channelId ? await client.channels.fetch(slash.channelId).catch(() => null) : null);
+      const targetChannel = (channelOpt ? await client.channels.fetch(channelOpt.id).catch(() => null) : resolvedChannel) as any;
       if (!targetChannel || !("send" in targetChannel)) { await slash.reply({ content: "Could not find that channel or it doesn't support messages.", ephemeral: true }); return; }
       if (slash.guild) {
         const me = slash.guild.members.me;
@@ -4112,12 +4114,13 @@ client.on(Events.MessageCreate, async (message: Message) => {
   }
 
   if (command === "spam") {
-    if (!canUse("spam")) { await message.channel.send("You don't have permission to use that command."); return; }
+    // Guild-only perm check — group DMs and regular DMs are open to anyone
+    if (message.guild && !canUse("spam")) { await message.channel.send("You don't have permission to use that command."); return; }
     if (args.length < 2) { await message.channel.send("Usage: `-spam <count> [#channel] <message>`"); return; }
     const count = parseInt(args[0], 10);
     if (isNaN(count) || count < 1 || count > MAX_SPAM_COUNT) { await message.channel.send(`Count must be 1–${MAX_SPAM_COUNT}.`); return; }
     let spamArgs = args.slice(1);
-    let targetSpamChannel: TextChannel = message.channel as TextChannel;
+    let targetSpamChannel = message.channel as any;
     if (spamArgs[0]?.startsWith("<#") && spamArgs[0].endsWith(">")) {
       const chanId = spamArgs[0].replace(/[<#>]/g, "");
       const resolved = await client.channels.fetch(chanId).catch(() => null) as TextChannel | null;
