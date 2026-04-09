@@ -1510,36 +1510,33 @@ async function buildUserEmbeds(
     const reliable  = lookupResults.filter(r => r.found && !r.unreliable);
     const uncertain = lookupResults.filter(r => r.found &&  r.unreliable);
     const checkedCount = lookupResults.length;
+    const u = user.username;
 
-    const formatRow = (items: LookupResult[]) =>
-      items.map(r => `${r.icon} [${r.name}](${r.link})`).join("  ·  ");
+    // One entry per line: icon [Site Name](url) — `username`
+    const formatLine = (r: LookupResult) => `${r.icon} [${r.name}](${r.link}) — \`${u}\``;
 
     const descLines: string[] = [
-      `Searched username **\`${user.username}\`** across **${checkedCount}** platforms.`,
+      `Searched **\`${u}\`** across **${checkedCount}** platforms.`,
       "",
+      `**✅ Confirmed Found (${reliable.length} / ${checkedCount})**`,
     ];
 
     if (reliable.length > 0) {
-      descLines.push(`**✅ Confirmed Found (${reliable.length})**`);
-      // chunk into rows of 4 for readability
-      for (let i = 0; i < reliable.length; i += 4)
-        descLines.push(formatRow(reliable.slice(i, i + 4)));
+      descLines.push(...reliable.map(formatLine));
     } else {
-      descLines.push("**✅ Confirmed Found (0)**");
       descLines.push("*No confirmed accounts found under this username.*");
     }
 
     if (uncertain.length > 0) {
       descLines.push("", `**⚠️ Possibly Found — verify manually (${uncertain.length})**`);
-      for (let i = 0; i < uncertain.length; i += 4)
-        descLines.push(formatRow(uncertain.slice(i, i + 4)));
-      descLines.push("", "*These sites use bot protection or client-side rendering and may show false positives.*");
+      descLines.push(...uncertain.map(formatLine));
+      descLines.push("", "⚠️ *These sites use bot protection or SPAs — results may be false positives.*");
     }
 
     embeds.lookup = base("🔎 Username Lookup")
       .setThumbnail(avatarUrl)
       .setDescription(descLines.join("\n").slice(0, 4000))
-      .setFooter({ text: `${footer.text} · Results are best-effort — always verify manually`, iconURL: footer.iconURL });
+      .setFooter({ text: `${footer.text} · Always verify results manually`, iconURL: footer.iconURL });
   }
 
   return embeds;
