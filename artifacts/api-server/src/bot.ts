@@ -2646,26 +2646,32 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
       }
       await slash.deferReply({ flags: 64 });
+      let errMsg: string | null = null;
       try {
         for (let i = 0; i < count; i++) {
           if (slash.guild) {
-            // Guild: use REST API (bot token has channel access)
+            // Guild: REST API, bot token has full channel access
             await client.rest.post(Routes.channelMessages(targetChannelId), { body: { content: spamText } });
           } else {
-            // DM / Group DM: use interaction followUp — uses the pre-authorized interaction webhook,
-            // which works regardless of whether the bot token has explicit channel access.
-            await slash.followUp({ content: spamText });
+            // DM / Group DM: try plain REST first (appears as a regular bot message with no interaction
+            // attribution). If the bot token lacks access to this channel type, fall back to followUp.
+            try {
+              await client.rest.post(Routes.channelMessages(targetChannelId), { body: { content: spamText } });
+            } catch {
+              await slash.followUp({ content: spamText });
+            }
           }
           if (i < count - 1) await new Promise(r => setTimeout(r, 200));
         }
       } catch (e: any) {
-        const isPerms = (e as any)?.code === 50013 || (e as any)?.code === 50001;
-        await slash.editReply(isPerms
-          ? `I couldn't send in that channel — missing Send Messages permission.`
-          : `Something went wrong mid-spam (${(e as any)?.message ?? "unknown error"}). Messages may have partially sent.`);
-        return;
+        errMsg = `Something went wrong mid-spam (${(e as any)?.message ?? "unknown error"}). Messages may have partially sent.`;
       }
-      await slash.editReply(`Done — sent ${count} message${count !== 1 ? "s" : ""} to ${channelOpt ? `<#${channelOpt.id}>` : "this channel"}.`);
+      // Always delete the deferred reply — no visible "done" confirmation, keeps it stealthy
+      await slash.deleteReply().catch(() => {});
+      if (errMsg) {
+        // Send error only to the triggering user
+        await slash.followUp({ content: errMsg, flags: 64 }).catch(() => {});
+      }
       return;
     }
 
