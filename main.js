@@ -1,6 +1,11 @@
-// main.js — GTBP Discord Bot
-  // Build the project first: pnpm --filter @workspace/api-server run build
-  // Then run: node main.js
+const { Client, GatewayIntentBits } = require("discord.js");
 
-  import('./artifacts/api-server/dist/index.mjs').catch(console.error);
-  
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+});
+
+client.once("ready", () => {
+  console.log("Bot is online");
+});
+
+client.login("YOUR_BOT_TOKEN");
